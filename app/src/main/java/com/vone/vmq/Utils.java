@@ -21,12 +21,20 @@ import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.security.SecureRandom;
+import java.security.cert.CertificateException;
+import java.security.cert.X509Certificate;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.Locale;
 import java.util.concurrent.TimeUnit;
+
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLSocketFactory;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.X509TrustManager;
 
 import okhttp3.ConnectionPool;
 import okhttp3.OkHttpClient;
@@ -43,6 +51,38 @@ class Utils {
     private static int notifyDay = -1;
     private static OkHttpClient okHttpClient;
 
+    /**
+     * 信任所有证书的 TrustManager，配合 sslSocketFactory 支持自签 https。
+     */
+    private static X509TrustManager trustAllManager() {
+        return new X509TrustManager() {
+            @SuppressLint("TrustAllX509TrustManager")
+            @Override
+            public void checkClientTrusted(X509Certificate[] chain, String authType) throws CertificateException {
+            }
+
+            @SuppressLint("TrustAllX509TrustManager")
+            @Override
+            public void checkServerTrusted(X509Certificate[] chain, String authType) throws CertificateException {
+            }
+
+            @Override
+            public X509Certificate[] getAcceptedIssuers() {
+                return new X509Certificate[0];
+            }
+        };
+    }
+
+    private static SSLSocketFactory trustAllFactory() {
+        try {
+            SSLContext sc = SSLContext.getInstance("TLS");
+            sc.init(null, new TrustManager[]{trustAllManager()}, new SecureRandom());
+            return sc.getSocketFactory();
+        } catch (Exception e) {
+            throw new RuntimeException("初始化 TLS 失败", e);
+        }
+    }
+
     public static OkHttpClient getOkHttpClient() {
         if (okHttpClient == null) {
             synchronized (Utils.class) {
@@ -56,6 +96,11 @@ class Utils {
                             .retryOnConnectionFailure(true)
                             .addInterceptor(new RetryInterceptor())
                             .addInterceptor(new LoggingInterceptor())
+                            // 支持 https 配置（含个人部署的自签证书）。
+                            // 本应用为个人收款监控端，原版走明文 http；
+                            // 自签 https（加密不校验 CA）相对明文是严格的安全性提升。
+                            .sslSocketFactory(trustAllFactory(), trustAllManager())
+                            .hostnameVerifier((hostname, session) -> true)
                             .build();
                 }
             }

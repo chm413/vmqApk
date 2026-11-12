@@ -78,6 +78,8 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
 
     private static String host;
     private static String key;
+    /** 服务端协议，随配置持久化：用户输入 https:// 前缀或扫码二维码携带时置为 https，默认 http 兼容老配置 */
+    private static String scheme = "http";
     int id = 0;
 
     // Activity Result Launchers - 替换过时的startActivityForResult
@@ -134,6 +136,7 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
         SharedPreferences read = getSharedPreferences("vone", MODE_PRIVATE);
         host = read.getString("host", "");
         key = read.getString("key", "");
+        scheme = read.getString("scheme", "http");
 
         if (!TextUtils.isEmpty(host)) {
             edtHost.setText(host);
@@ -220,11 +223,14 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
         String inputHost = edtHost.getText() != null ? edtHost.getText().toString().trim() : "";
         String inputKey = edtKey.getText() != null ? edtKey.getText().toString().trim() : "";
 
-        // 容错：自动过滤用户不小心输入的 http:// 或 https:// 前缀及末尾斜杠
-        if (inputHost.startsWith("http://")) {
-            inputHost = inputHost.substring(7);
-        } else if (inputHost.startsWith("https://")) {
+        // 容错：自动过滤用户不小心输入的 http:// 或 https:// 前缀及末尾斜杠，
+        // 并记住协议（https:// 输入持久化为 https，无前缀时沿用已保存的协议）
+        if (inputHost.startsWith("https://")) {
             inputHost = inputHost.substring(8);
+            scheme = "https";
+        } else if (inputHost.startsWith("http://")) {
+            inputHost = inputHost.substring(7);
+            scheme = "http";
         }
         if (inputHost.endsWith("/")) {
             inputHost = inputHost.substring(0, inputHost.length() - 1);
@@ -237,6 +243,7 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
         SharedPreferences.Editor editor = getSharedPreferences("vone", MODE_PRIVATE).edit();
         editor.putString("host", host);
         editor.putString("key", key);
+        editor.putString("scheme", scheme);
         editor.apply();
     }
 
@@ -338,7 +345,16 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
             return;
         }
 
-        String[] tmp = scanResult.split("/");
+        // 兼容 host/key 与 https://host/key（http://host/key）两种二维码格式
+        String qrScheme = "http";
+        String qrRest = scanResult == null ? "" : scanResult.trim();
+        if (qrRest.startsWith("https://")) {
+            qrScheme = "https";
+            qrRest = qrRest.substring(8);
+        } else if (qrRest.startsWith("http://")) {
+            qrRest = qrRest.substring(7);
+        }
+        String[] tmp = qrRest.split("/");
         if (tmp.length != 2) {
             Toast.makeText(MainActivity.this, "二维码错误，请您扫描网站上显示的二维码!", Toast.LENGTH_SHORT).show();
             return;
@@ -348,7 +364,7 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
         String sign = MonitorSign.heartbeat(t, tmp[1]);
 
         Request request = new Request.Builder()
-            .url("http://" + tmp[0] + "/api/monitor/heart?t=" + t + "&sign=" + sign)
+            .url(qrScheme + "://" + tmp[0] + "/api/monitor/heart?t=" + t + "&sign=" + sign)
             .method("GET", null)
             .build();
         
@@ -391,6 +407,9 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
                         if (edtKey != null) edtKey.setText(tmp[1]);
                         host = tmp[0];
                         key = tmp[1];
+                        scheme = qrScheme;
+                        getSharedPreferences("vone", MODE_PRIVATE)
+                                .edit().putString("scheme", scheme).apply();
                         isOk = true;
                         Toast.makeText(MainActivity.this, "配置成功！", Toast.LENGTH_SHORT).show();
                         appendLog("扫码配置成功: " + tmp[0]);
@@ -609,7 +628,16 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
                     return;
                 }
                 
-                String[] tmp = scanResult.split("/");
+                // 兼容 host/key 与 https://host/key（http://host/key）两种配置格式
+                String qrScheme = "http";
+                String qrRest = scanResult.trim();
+                if (qrRest.startsWith("https://")) {
+                    qrScheme = "https";
+                    qrRest = qrRest.substring(8);
+                } else if (qrRest.startsWith("http://")) {
+                    qrRest = qrRest.substring(7);
+                }
+                String[] tmp = qrRest.split("/");
                 if (tmp.length != 2) {
                     Toast.makeText(MainActivity.this, "数据错误，请您输入网站上显示的配置数据!", Toast.LENGTH_SHORT).show();
                     return;
@@ -618,7 +646,7 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
                 String t = MonitorSign.timestamp();
                 String sign = MonitorSign.heartbeat(t, tmp[1]);
 
-                Request request = new Request.Builder().url("http://" + tmp[0] + "/api/monitor/heart?t=" + t + "&sign=" + sign).method("GET", null).build();
+                Request request = new Request.Builder().url(qrScheme + "://" + tmp[0] + "/api/monitor/heart?t=" + t + "&sign=" + sign).method("GET", null).build();
                 Call call = Utils.getOkHttpClient().newCall(request);
                 call.enqueue(new Callback() {
                     @Override
@@ -649,6 +677,9 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
                 if (edtKey != null) edtKey.setText(tmp[1]);
                 host = tmp[0];
                 key = tmp[1];
+                scheme = qrScheme;
+                getSharedPreferences("vone", MODE_PRIVATE)
+                        .edit().putString("scheme", scheme).apply();
                 isOk = true;
 
             }
@@ -671,7 +702,7 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
         String t = MonitorSign.timestamp();
         String sign = MonitorSign.heartbeat(t, key);
 
-        Request request = new Request.Builder().url("http://" + host + "/api/monitor/heart?t=" + t + "&sign=" + sign).method("GET", null).build();
+        Request request = new Request.Builder().url(scheme + "://" + host + "/api/monitor/heart?t=" + t + "&sign=" + sign).method("GET", null).build();
         Call call = Utils.getOkHttpClient().newCall(request);
         call.enqueue(new Callback() {
             @Override
@@ -1069,7 +1100,16 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
             Bundle bundle = data.getExtras();
             String scanResult = bundle.getString(Constant.INTENT_EXTRA_KEY_QR_SCAN);
 
-            String[] tmp = scanResult.split("/");
+            // 兼容 host/key 与 https://host/key（http://host/key）两种二维码格式
+            String qrScheme = "http";
+            String qrRest = scanResult == null ? "" : scanResult.trim();
+            if (qrRest.startsWith("https://")) {
+                qrScheme = "https";
+                qrRest = qrRest.substring(8);
+            } else if (qrRest.startsWith("http://")) {
+                qrRest = qrRest.substring(7);
+            }
+            String[] tmp = qrRest.split("/");
             if (tmp.length != 2) {
                 Toast.makeText(MainActivity.this, "二维码错误，请您扫描网站上显示的二维码!", Toast.LENGTH_SHORT).show();
                 return;
@@ -1078,7 +1118,7 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
             String t = MonitorSign.timestamp();
             String sign = MonitorSign.heartbeat(t, tmp[1]);
 
-            Request request = new Request.Builder().url("http://" + tmp[0] + "/api/monitor/heart?t=" + t + "&sign=" + sign).method("GET", null).build();
+            Request request = new Request.Builder().url(qrScheme + "://" + tmp[0] + "/api/monitor/heart?t=" + t + "&sign=" + sign).method("GET", null).build();
             Call call = Utils.getOkHttpClient().newCall(request);
             call.enqueue(new Callback() {
                 @Override
@@ -1105,6 +1145,9 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
             if (edtKey != null) edtKey.setText(tmp[1]);
             host = tmp[0];
             key = tmp[1];
+            scheme = qrScheme;
+            getSharedPreferences("vone", MODE_PRIVATE)
+                    .edit().putString("scheme", scheme).apply();
             isOk = true;
         }
     }

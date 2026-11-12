@@ -89,12 +89,13 @@ public class NeNotificationService2 extends NotificationListenerService {
                     SharedPreferences read = getSharedPreferences("vone", MODE_PRIVATE);
                     host = read.getString("host", "");
                     key = read.getString("key", "");
+                    final String scheme = read.getString("scheme", "http");
 
                     //这里写入子线程需要做的工作
                     String t = MonitorSign.timestamp();
                     String sign = MonitorSign.heartbeat(t, key);
 
-                    final String url = "http://" + host + "/api/monitor/heart?t=" + t + "&sign=" + sign;
+                    final String url = scheme + "://" + host + "/api/monitor/heart?t=" + t + "&sign=" + sign;
                     Request request = new Request.Builder().url(url).method("GET", null).build();
                     Call call = Utils.getOkHttpClient().newCall(request);
                     call.enqueue(new Callback() {
@@ -237,6 +238,7 @@ public class NeNotificationService2 extends NotificationListenerService {
         SharedPreferences read = getSharedPreferences("vone", MODE_PRIVATE);
         host = read.getString("host", "");
         key = read.getString("key", "");
+        final String scheme = read.getString("scheme", "http");
 
         String t = MonitorSign.timestamp();
         String typeText = String.valueOf(type);
@@ -244,7 +246,7 @@ public class NeNotificationService2 extends NotificationListenerService {
         String priceText = MonitorSign.priceText(price);
 
         String sign = MonitorSign.push(typeText, priceText, t, key);
-        final String url = "http://" + host + "/api/monitor/push?t=" + t + "&type=" + typeText + "&price=" + priceText + "&sign=" + sign;
+        final String url = scheme + "://" + host + "/api/monitor/push?t=" + t + "&type=" + typeText + "&price=" + priceText + "&sign=" + sign;
 
         // 签名属于短期 bearer 凭据，日志只保留脱敏后的请求路径。
         sendBroadcastLog("准备推送订单: " + Utils.redactMonitorUrl(url));
