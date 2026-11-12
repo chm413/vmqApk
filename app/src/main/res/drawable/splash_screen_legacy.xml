@@ -3,10 +3,10 @@
     <!-- 背景层 -->
     <item android:drawable="?attr/colorSurface" />
     
-    <!-- 居中的应用图标 -->
-    <item android:gravity="center">
-        <bitmap
-            android:src="@drawable/ic_splash_screen"
-            android:gravity="center" />
-    </item>
+    <!-- 居中的应用图标：ic_splash_screen 是 VectorDrawable，
+         <bitmap> 的 src 只接受位图，包 Vector 会抛
+         "<bitmap> requires a valid 'src' attribute" 导致启动必崩（见 logcat） -->
+    <item
+        android:drawable="@drawable/ic_splash_screen"
+        android:gravity="center" />
 </layer-list>

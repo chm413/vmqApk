@@ -7,6 +7,10 @@ on:
         description: "为版本创建一个标签，例如 V3.1"
         required: true
         type: string
+  # 推送 V 开头 tag 自动触发发布，tag 名取 ref
+  push:
+    tags:
+      - "V*"
 
 permissions:
   contents: write
@@ -62,6 +66,6 @@ jobs:
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ inputs.tag_name }}
+          tag_name: ${{ inputs.tag_name || github.ref_name }}
           overwrite_files: true
           files: app/build/outputs/apk/release/app-release.apk
