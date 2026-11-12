@@ -24,6 +24,8 @@ appops set com.vone.qrcode RECEIVE_SENSITIVE_NOTIFICATIONS allow
 2. 支持post失败后再重试一次(这次重试是强制亮屏的)
 4. 支持 v2 HMAC-SHA-256 签名校验与防重放时间戳窗口
 5. 集成 Material You 风格状态卡片与实时诊断能力
+6. **支持服务端 HTTPS 配置（含自签证书）**：手动输入 `https://` 前缀或扫 `https://host/key` 二维码即走 https，默认 http 兼容老配置（v3.1.3）
+7. **修复启动必崩**：v31 主题 windowBackground 用 `<bitmap>` 包 VectorDrawable 导致 Android 12+ 启动闪退（v3.1.1）
 
 优化功能：
 
@@ -69,9 +71,18 @@ V免签 是基于SpringBoot 2.1.1/ThinkPhP5.1 实现的一套免签支付程序�
  + 下载服务端程序，可选PHP/Java版，按照说明安装
  + 下载编译好的Apk,安装后扫码/手动配置 即可使用
 
-
  > 升级说明：请您直接下载新版本覆盖旧版本即可！
 
+### HTTPS 配置（v3.1.3 起）
+
+- 手动配置：地址栏直接输入 `https://你的域名:端口`（带前缀会自动记住协议）；不带前缀沿用已保存的协议
+- 扫码配置：服务端二维码格式为 `https://host/key` 即可走 https；裸 `host/key` 默认 http
+- 客户端信任自签证书（个人部署场景）；正式 CA 证书（Let's Encrypt 等）同样支持
+
+### 从旧版本（v2.x / V3.1 之前）升级到 v3.1.3
+
+> ⚠️ v3.1.3 起改用全新自签签名（vmqfox.keystore），与旧版作者签名不同，**无法覆盖安装**：
+> 必须先卸载旧版再安装，并重新配置服务端地址、重新授予通知使用权与 `appops` 授权。
 
 ## 说明
  + 请部署完成后访问后台，有详细的Api说明
@@ -113,6 +124,20 @@ V免签 是基于SpringBoot 2.1.1/ThinkPhP5.1 实现的一套免签支付程序�
     + 微信收款商业版店员到账收款通知
 
 ## 更新记录
+
+ + v3.1.3（2026.11.12）
+    + 支持 HTTPS 服务端配置（含自签证书），全部 API 请求按配置协议发起
+    + 扫码/手动配置兼容 `https://host/key` 格式
+ + v3.1.1（2026.11.12）
+    + 修复 Android 12+ 启动必崩（splash_screen_legacy 用 `<bitmap>` 包 VectorDrawable）
+    + CI 改为推送 `V*` tag 自动构建发布
+ + v3.1（2026.11）
+    + versionName 3.1，首个正式签名版本（GitHub Actions 构建发布）
+ + v3.0（2024）
+    + Material You 设计升级：动态颜色、Material 3 主题、自适应图标
+    + 目标 SDK 34，v2 HMAC-SHA-256 签名校验，Material You 状态卡片与实时诊断
+    + 详细说明见 [RELEASE_NOTES_v3.0.md](RELEASE_NOTES_v3.0.md)
+
  + v1.8.1（2019.12.20）
     + 修复上个版本无法正常回调问题
 
