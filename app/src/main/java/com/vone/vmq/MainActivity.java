@@ -346,14 +346,14 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
         }
 
         // 兼容 host/key 与 https://host/key（http://host/key）两种二维码格式
-        String qrScheme = "http";
         String qrRest = scanResult == null ? "" : scanResult.trim();
-        if (qrRest.startsWith("https://")) {
-            qrScheme = "https";
+        boolean qrHttps = qrRest.startsWith("https://");
+        if (qrHttps) {
             qrRest = qrRest.substring(8);
         } else if (qrRest.startsWith("http://")) {
             qrRest = qrRest.substring(7);
         }
+        final String qrScheme = qrHttps ? "https" : "http";
         String[] tmp = qrRest.split("/");
         if (tmp.length != 2) {
             Toast.makeText(MainActivity.this, "二维码错误，请您扫描网站上显示的二维码!", Toast.LENGTH_SHORT).show();
@@ -629,14 +629,14 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
                 }
                 
                 // 兼容 host/key 与 https://host/key（http://host/key）两种配置格式
-                String qrScheme = "http";
                 String qrRest = scanResult.trim();
-                if (qrRest.startsWith("https://")) {
-                    qrScheme = "https";
+                boolean qrHttps = qrRest.startsWith("https://");
+                if (qrHttps) {
                     qrRest = qrRest.substring(8);
                 } else if (qrRest.startsWith("http://")) {
                     qrRest = qrRest.substring(7);
                 }
+                final String qrScheme = qrHttps ? "https" : "http";
                 String[] tmp = qrRest.split("/");
                 if (tmp.length != 2) {
                     Toast.makeText(MainActivity.this, "数据错误，请您输入网站上显示的配置数据!", Toast.LENGTH_SHORT).show();
@@ -1101,14 +1101,14 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
             String scanResult = bundle.getString(Constant.INTENT_EXTRA_KEY_QR_SCAN);
 
             // 兼容 host/key 与 https://host/key（http://host/key）两种二维码格式
-            String qrScheme = "http";
             String qrRest = scanResult == null ? "" : scanResult.trim();
-            if (qrRest.startsWith("https://")) {
-                qrScheme = "https";
+            boolean qrHttps = qrRest.startsWith("https://");
+            if (qrHttps) {
                 qrRest = qrRest.substring(8);
             } else if (qrRest.startsWith("http://")) {
                 qrRest = qrRest.substring(7);
             }
+            final String qrScheme = qrHttps ? "https" : "http";
             String[] tmp = qrRest.split("/");
             if (tmp.length != 2) {
                 Toast.makeText(MainActivity.this, "二维码错误，请您扫描网站上显示的二维码!", Toast.LENGTH_SHORT).show();
