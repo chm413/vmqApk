@@ -130,7 +130,7 @@ public class ForegroundServer extends Service {
             @Override
             public void run() {
                 Request request = new Request.Builder().url(url).method("GET", null).build();
-                Call call = Utils.getOkHttpClient().newCall(request);
+                Call call = Utils.getOkHttpClient(ForegroundServer.this).newCall(request);
                 call.enqueue(new Callback() {
                     @Override
                     public void onFailure(Call call, IOException e) {

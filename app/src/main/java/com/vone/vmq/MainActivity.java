@@ -80,6 +80,8 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
     private static String key;
     /** 服务端协议，随配置持久化：用户输入 https:// 前缀或扫码二维码携带时置为 https，默认 http 兼容老配置 */
     private static String scheme = "http";
+    /** 证书校验开关：开启后走系统 CA 严格校验，默认关闭以兼容自签证书 */
+    private com.google.android.material.materialswitch.MaterialSwitch swVerifySsl;
     int id = 0;
 
     // Activity Result Launchers - 替换过时的startActivityForResult
@@ -125,6 +127,7 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
 
         edtHost = (TextInputEditText) findViewById(R.id.edt_host);
         edtKey = (TextInputEditText) findViewById(R.id.edt_key);
+        swVerifySsl = (com.google.android.material.materialswitch.MaterialSwitch) findViewById(R.id.sw_verify_ssl);
         logTextView = (TextView) findViewById(R.id.log_text_view);
         logScrollView = (ScrollView) findViewById(R.id.log_scroll_view);
         btnClearLogsInline = (com.google.android.material.button.MaterialButton) findViewById(R.id.btn_clear_logs_inline);
@@ -137,6 +140,12 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
         host = read.getString("host", "");
         key = read.getString("key", "");
         scheme = read.getString("scheme", "http");
+
+        // 证书校验开关：实时持久化；切换立即生效（客户端按需选取，无需重启）
+        swVerifySsl.setChecked(read.getBoolean("verify_ssl", false));
+        swVerifySsl.setOnCheckedChangeListener((buttonView, isChecked) ->
+                getSharedPreferences("vone", MODE_PRIVATE).edit()
+                        .putBoolean("verify_ssl", isChecked).apply());
 
         if (!TextUtils.isEmpty(host)) {
             edtHost.setText(host);
@@ -368,7 +377,7 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
             .method("GET", null)
             .build();
         
-        Call call = Utils.getOkHttpClient().newCall(request);
+        Call call = Utils.getOkHttpClient(this).newCall(request);
         call.enqueue(new Callback() {
             @Override
             public void onFailure(Call call, IOException e) {
@@ -647,7 +656,7 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
                 String sign = MonitorSign.heartbeat(t, tmp[1]);
 
                 Request request = new Request.Builder().url(qrScheme + "://" + tmp[0] + "/api/monitor/heart?t=" + t + "&sign=" + sign).method("GET", null).build();
-                Call call = Utils.getOkHttpClient().newCall(request);
+                Call call = Utils.getOkHttpClient(MainActivity.this).newCall(request);
                 call.enqueue(new Callback() {
                     @Override
                     public void onFailure(Call call, IOException e) {
@@ -703,7 +712,7 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
         String sign = MonitorSign.heartbeat(t, key);
 
         Request request = new Request.Builder().url(scheme + "://" + host + "/api/monitor/heart?t=" + t + "&sign=" + sign).method("GET", null).build();
-        Call call = Utils.getOkHttpClient().newCall(request);
+        Call call = Utils.getOkHttpClient(this).newCall(request);
         call.enqueue(new Callback() {
             @Override
             public void onFailure(Call call, final IOException e) {
@@ -1119,7 +1128,7 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
             String sign = MonitorSign.heartbeat(t, tmp[1]);
 
             Request request = new Request.Builder().url(qrScheme + "://" + tmp[0] + "/api/monitor/heart?t=" + t + "&sign=" + sign).method("GET", null).build();
-            Call call = Utils.getOkHttpClient().newCall(request);
+            Call call = Utils.getOkHttpClient(this).newCall(request);
             call.enqueue(new Callback() {
                 @Override
                 public void onFailure(Call call, IOException e) {

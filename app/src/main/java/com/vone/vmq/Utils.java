@@ -49,7 +49,58 @@ class Utils {
     private final static String dayType = "yyyy-MM-dd HH:mm:ss";
     private final static String hourType = "HH:mm:ss";
     private static int notifyDay = -1;
-    private static OkHttpClient okHttpClient;
+    private static OkHttpClient insecureClient;
+    private static OkHttpClient secureClient;
+
+    /**
+     * 按配置返回网络客户端。
+     * verify_ssl=true：系统 CA 严格校验证书（正式证书，如 Let's Encrypt）；
+     * 默认 false：信任自签证书——个人收款监控端场景，自签 https（加密不校验 CA）
+     * 相对明文 http 是严格的安全性提升。
+     */
+    public static OkHttpClient getOkHttpClient(Context context) {
+        boolean verify = context != null
+                && context.getSharedPreferences("vone", Context.MODE_PRIVATE)
+                        .getBoolean("verify_ssl", false);
+        return verify ? getVerifiedClient() : getInsecureClient();
+    }
+
+    private static OkHttpClient.Builder baseClientBuilder() {
+        return new OkHttpClient.Builder()
+                .connectTimeout(15, TimeUnit.SECONDS)
+                .readTimeout(30, TimeUnit.SECONDS)
+                .writeTimeout(30, TimeUnit.SECONDS)
+                .callTimeout(60, TimeUnit.SECONDS)
+                .connectionPool(new ConnectionPool(5, 5, TimeUnit.MINUTES))
+                .retryOnConnectionFailure(true)
+                .addInterceptor(new RetryInterceptor())
+                .addInterceptor(new LoggingInterceptor());
+    }
+
+    private static OkHttpClient getInsecureClient() {
+        if (insecureClient == null) {
+            synchronized (Utils.class) {
+                if (insecureClient == null) {
+                    insecureClient = baseClientBuilder()
+                            .sslSocketFactory(trustAllFactory(), trustAllManager())
+                            .hostnameVerifier((hostname, session) -> true)
+                            .build();
+                }
+            }
+        }
+        return insecureClient;
+    }
+
+    private static OkHttpClient getVerifiedClient() {
+        if (secureClient == null) {
+            synchronized (Utils.class) {
+                if (secureClient == null) {
+                    secureClient = baseClientBuilder().build();
+                }
+            }
+        }
+        return secureClient;
+    }
 
     /**
      * 信任所有证书的 TrustManager，配合 sslSocketFactory 支持自签 https。
@@ -81,31 +132,6 @@ class Utils {
         } catch (Exception e) {
             throw new RuntimeException("初始化 TLS 失败", e);
         }
-    }
-
-    public static OkHttpClient getOkHttpClient() {
-        if (okHttpClient == null) {
-            synchronized (Utils.class) {
-                if (okHttpClient == null) {
-                    okHttpClient = new OkHttpClient.Builder()
-                            .connectTimeout(15, TimeUnit.SECONDS)
-                            .readTimeout(30, TimeUnit.SECONDS)
-                            .writeTimeout(30, TimeUnit.SECONDS)
-                            .callTimeout(60, TimeUnit.SECONDS)
-                            .connectionPool(new ConnectionPool(5, 5, TimeUnit.MINUTES))
-                            .retryOnConnectionFailure(true)
-                            .addInterceptor(new RetryInterceptor())
-                            .addInterceptor(new LoggingInterceptor())
-                            // 支持 https 配置（含个人部署的自签证书）。
-                            // 本应用为个人收款监控端，原版走明文 http；
-                            // 自签 https（加密不校验 CA）相对明文是严格的安全性提升。
-                            .sslSocketFactory(trustAllFactory(), trustAllManager())
-                            .hostnameVerifier((hostname, session) -> true)
-                            .build();
-                }
-            }
-        }
-        return okHttpClient;
     }
 
     static void putStr(Context context, String value) {

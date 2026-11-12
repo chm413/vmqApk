@@ -97,7 +97,7 @@ public class NeNotificationService2 extends NotificationListenerService {
 
                     final String url = scheme + "://" + host + "/api/monitor/heart?t=" + t + "&sign=" + sign;
                     Request request = new Request.Builder().url(url).method("GET", null).build();
-                    Call call = Utils.getOkHttpClient().newCall(request);
+                    Call call = Utils.getOkHttpClient(NeNotificationService2.this).newCall(request);
                     call.enqueue(new Callback() {
                         @Override
                         public void onFailure(Call call, IOException e) {
@@ -251,7 +251,7 @@ public class NeNotificationService2 extends NotificationListenerService {
         // 签名属于短期 bearer 凭据，日志只保留脱敏后的请求路径。
         sendBroadcastLog("准备推送订单: " + Utils.redactMonitorUrl(url));
         Request request = new Request.Builder().url(url).get().build();
-        Call call = Utils.getOkHttpClient().newCall(request);
+        Call call = Utils.getOkHttpClient(NeNotificationService2.this).newCall(request);
         call.enqueue(new Callback() {
             @Override
             public void onFailure(Call call, IOException e) {

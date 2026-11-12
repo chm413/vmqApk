@@ -201,7 +201,7 @@ public class SplashScreenPerformanceOptimizer {
     private void initializeNetworkClient() {
         try {
             // 预热OkHttpClient
-            Utils.getOkHttpClient();
+            Utils.getOkHttpClient(context);
             Log.d(TAG, "网络客户端初始化完成");
         } catch (Exception e) {
             Log.w(TAG, "网络客户端初始化失败: " + e.getMessage());
