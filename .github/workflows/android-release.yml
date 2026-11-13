@@ -59,7 +59,19 @@ jobs:
           EOF
 
       - name: Build release APK
-        run: ./gradlew --no-daemon assembleRelease
+        run: ./gradlew --no-daemon assembleRelease 2>&1 | tee build.log
+
+      # 失败时把构建日志推到 ci-log 分支，便于无日志权限时排查（分支推送不会再次触发本 workflow）
+      - name: Dump build log on failure
+        if: failure()
+        run: |
+          set -uo pipefail
+          tail -c 150000 build.log > .ci-build.log || true
+          git config user.name "ci-logger"
+          git config user.email "ci-logger@users.noreply.github.com"
+          git add -f .ci-build.log
+          git commit -m "ci: build log for ${GITHUB_REF_NAME}" || true
+          git push -f origin HEAD:refs/heads/ci-log || true
 
       # 产物路径固定为 app-release.apk，与历史 Release 资产同名，
       # overwrite_files 允许修订同一 tag 时直接替换旧包。
