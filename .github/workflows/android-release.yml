@@ -59,7 +59,9 @@ jobs:
           EOF
 
       - name: Build release APK
-        run: ./gradlew --no-daemon assembleRelease 2>&1 | tee build.log
+        run: |
+          set -o pipefail
+          ./gradlew --no-daemon assembleRelease 2>&1 | tee build.log
 
       # 失败时把构建日志推到 ci-log 分支，便于无日志权限时排查（分支推送不会再次触发本 workflow）
       - name: Dump build log on failure
