@@ -1,37 +1,46 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources xmlns:tools="http://schemas.android.com/tools">
-    <!-- Material 3 Light Theme -->
-    <style name="Theme.VMQ" parent="Theme.Material3.DayNight.NoActionBar">
+
+    <!--
+        基座主题：承载全部配色与窗口属性。
+        values / values-night 各定义一份（浅色 / 深色），
+        values-v31 只在其上叠加 Android 12 的 SplashScreen 属性。
+
+        这样拆分是为了修掉一个历史缺陷：过去 values-v31/themes.xml 整份复制了
+        Theme.VMQ，却漏掉了 windowLightStatusBar 等属性，导致 Android 12+ 上
+        状态栏图标是白色、背景也是白色，时间和电量看不见。
+    -->
+    <style name="Theme.VMQ.Base" parent="Theme.Material3.DayNight.NoActionBar">
         <!-- Primary colors -->
         <item name="colorPrimary">@color/md_theme_light_primary</item>
         <item name="colorOnPrimary">@color/md_theme_light_onPrimary</item>
         <item name="colorPrimaryContainer">@color/md_theme_light_primaryContainer</item>
         <item name="colorOnPrimaryContainer">@color/md_theme_light_onPrimaryContainer</item>
-        
+
         <!-- Secondary colors -->
         <item name="colorSecondary">@color/md_theme_light_secondary</item>
         <item name="colorOnSecondary">@color/md_theme_light_onSecondary</item>
         <item name="colorSecondaryContainer">@color/md_theme_light_secondaryContainer</item>
         <item name="colorOnSecondaryContainer">@color/md_theme_light_onSecondaryContainer</item>
-        
+
         <!-- Tertiary colors -->
         <item name="colorTertiary">@color/md_theme_light_tertiary</item>
         <item name="colorOnTertiary">@color/md_theme_light_onTertiary</item>
         <item name="colorTertiaryContainer">@color/md_theme_light_tertiaryContainer</item>
         <item name="colorOnTertiaryContainer">@color/md_theme_light_onTertiaryContainer</item>
-        
+
         <!-- Error colors -->
         <item name="colorError">@color/md_theme_light_error</item>
         <item name="colorErrorContainer">@color/md_theme_light_errorContainer</item>
         <item name="colorOnError">@color/md_theme_light_onError</item>
         <item name="colorOnErrorContainer">@color/md_theme_light_onErrorContainer</item>
-        
+
         <!-- Background colors -->
         <item name="android:colorBackground">@color/md_theme_light_background</item>
         <item name="colorOnBackground">@color/md_theme_light_onBackground</item>
         <item name="colorSurface">@color/md_theme_light_surface</item>
         <item name="colorOnSurface">@color/md_theme_light_onSurface</item>
-        
+
         <!-- Surface variant colors -->
         <item name="colorSurfaceVariant">@color/md_theme_light_surfaceVariant</item>
         <item name="colorOnSurfaceVariant">@color/md_theme_light_onSurfaceVariant</item>
@@ -39,58 +48,50 @@
         <item name="colorOnSurfaceInverse">@color/md_theme_light_inverseOnSurface</item>
         <item name="colorSurfaceInverse">@color/md_theme_light_inverseSurface</item>
         <item name="colorPrimaryInverse">@color/md_theme_light_inversePrimary</item>
-        
+
         <!-- Window attributes for better startup experience -->
         <item name="android:windowBackground">@drawable/splash_screen_legacy</item>
         <item name="android:windowContentTransitions">true</item>
         <item name="android:windowActivityTransitions">true</item>
         <item name="android:windowAllowEnterTransitionOverlap">true</item>
         <item name="android:windowAllowReturnTransitionOverlap">true</item>
-        
-        <!-- 启动画面优化 -->
+
+        <!-- 启动画面优化：状态栏 / 导航栏图标随主题反色，避免白底白字 -->
         <item name="android:windowDrawsSystemBarBackgrounds">true</item>
         <item name="android:statusBarColor">?attr/colorSurface</item>
         <item name="android:navigationBarColor">?attr/colorSurface</item>
         <item name="android:windowLightStatusBar">true</item>
         <item name="android:windowLightNavigationBar" tools:targetApi="o_mr1">true</item>
-        
+
         <!-- 防止启动时的白屏闪烁 -->
         <item name="android:windowNoTitle">true</item>
         <item name="android:windowActionBar">false</item>
         <item name="android:windowFullscreen">false</item>
         <item name="android:windowContentOverlay">@null</item>
-        
-        <!-- Dynamic colors handled programmatically -->
     </style>
-    
-    <!-- Material 3 Dynamic Color Theme for Android 12+ -->
-    <style name="Theme.VMQ.DynamicColor" parent="Theme.Material3.DayNight.NoActionBar">
-        <!-- Fallback colors when dynamic colors are not available -->
-        <item name="colorPrimary">@color/md_theme_light_primary</item>
-        <item name="colorOnPrimary">@color/md_theme_light_onPrimary</item>
-        <item name="colorPrimaryContainer">@color/md_theme_light_primaryContainer</item>
-        <item name="colorOnPrimaryContainer">@color/md_theme_light_onPrimaryContainer</item>
-        
-        <item name="android:windowBackground">?attr/colorSurface</item>
-        <item name="android:windowContentTransitions">true</item>
-    </style>
-    
+
+    <!-- 默认（浅色）主题：仅继承基座；Android 12+ 的附加样式见 values-v31 -->
+    <style name="Theme.VMQ" parent="Theme.VMQ.Base" />
+
+    <!-- 动态取色主题（若后续启用 Material You，可切到它） -->
+    <style name="Theme.VMQ.DynamicColor" parent="Theme.VMQ" />
+
     <!-- Legacy theme for backward compatibility -->
     <style name="AppTheme" parent="Theme.VMQ" />
-    
+
     <!-- Custom button styles -->
     <style name="Widget.VMQ.Button" parent="Widget.Material3.Button">
         <item name="android:textAllCaps">false</item>
         <item name="android:minHeight">48dp</item>
         <item name="cornerRadius">12dp</item>
     </style>
-    
+
     <style name="Widget.VMQ.Button.Outlined" parent="Widget.Material3.Button.OutlinedButton">
         <item name="android:textAllCaps">false</item>
         <item name="android:minHeight">48dp</item>
         <item name="cornerRadius">12dp</item>
     </style>
-    
+
     <style name="Widget.VMQ.Button.Text" parent="Widget.Material3.Button.TextButton">
         <item name="android:textAllCaps">false</item>
         <item name="android:minHeight">48dp</item>

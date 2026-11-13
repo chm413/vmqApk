@@ -44,6 +44,7 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import com.google.android.material.color.MaterialColors;
 import com.google.android.material.textfield.TextInputEditText;
 import com.google.zxing.activity.CaptureActivity;
 
@@ -226,8 +227,10 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
         } else {
             tvListener.setText("监听服务：未授权，请到系统设置开启通知使用权");
         }
-        tvListener.setTextColor(ContextCompat.getColor(this,
-                listenerEnabled ? R.color.md_theme_light_primary : R.color.md_theme_light_error));
+        // 必须按主题属性取色（?attr/colorPrimary 等）。此前用的是 R.color.md_theme_light_*，
+        // 那是固定浅色值：深色模式下 #6750A4 / #49454F 落在 #1C1B1F 背景上对比度不足 2:1，文字几乎不可见。
+        tvListener.setTextColor(MaterialColors.getColor(tvListener,
+                listenerEnabled ? R.attr.colorPrimary : R.attr.colorError));
 
         long okAt = read.getLong("last_heart_ok_at", 0L);
         long failAt = read.getLong("last_heart_fail_at", 0L);
@@ -237,13 +240,13 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
 
         if (online) {
             tvHeart.setText("心跳：在线");
-            tvHeart.setTextColor(ContextCompat.getColor(this, R.color.md_theme_light_primary));
+            tvHeart.setTextColor(MaterialColors.getColor(tvHeart, R.attr.colorPrimary));
         } else if (failCount > 0 && failAt >= okAt) {
             tvHeart.setText("心跳：离线（连续失败 " + failCount + " 次，指数退避重试中）");
-            tvHeart.setTextColor(ContextCompat.getColor(this, R.color.md_theme_light_error));
+            tvHeart.setTextColor(MaterialColors.getColor(tvHeart, R.attr.colorError));
         } else {
             tvHeart.setText("心跳：等待首次上报");
-            tvHeart.setTextColor(ContextCompat.getColor(this, R.color.md_theme_light_onSurfaceVariant));
+            tvHeart.setTextColor(MaterialColors.getColor(tvHeart, R.attr.colorOnSurfaceVariant));
         }
 
         String okText = okAt > 0

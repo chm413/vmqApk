@@ -31,6 +31,7 @@ import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
 import com.google.android.material.button.MaterialButton;
+import com.google.android.material.color.MaterialColors;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.materialswitch.MaterialSwitch;
 import com.google.android.material.textfield.TextInputEditText;
@@ -178,15 +179,16 @@ public class SettingsActivity extends AppCompatActivity {
             return;
         }
         tvShizukuStatus.setText(ShizukuKeepAlive.statusText());
-        int color;
+        // 按主题属性取色，避免深色模式下用浅色常量导致对比度不足
+        int colorAttr;
         if (ShizukuKeepAlive.isGranted()) {
-            color = R.color.md_theme_light_primary;
+            colorAttr = R.attr.colorPrimary;
         } else if (ShizukuKeepAlive.isAvailable()) {
-            color = R.color.md_theme_light_onSurface;
+            colorAttr = R.attr.colorOnSurface;
         } else {
-            color = R.color.md_theme_light_error;
+            colorAttr = R.attr.colorError;
         }
-        tvShizukuStatus.setTextColor(ContextCompat.getColor(this, color));
+        tvShizukuStatus.setTextColor(MaterialColors.getColor(tvShizukuStatus, colorAttr));
     }
 
     private void requestShizuku() {

@@ -5,7 +5,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="@color/backgroundColor"
+    android:background="?attr/colorSurface"
     tools:context="com.vone.vmq.SettingsActivity">
 
     <androidx.appcompat.widget.Toolbar
@@ -15,7 +15,7 @@
         android:background="?attr/colorPrimary"
         android:elevation="4dp"
         app:title="设置"
-        app:titleTextColor="@android:color/white" />
+        app:titleTextColor="?attr/colorOnPrimary" />
 
     <ScrollView
         android:layout_width="match_parent"
@@ -167,7 +167,7 @@
                         android:lineSpacingExtra="3dp"
                         android:text="· 基础心跳间隔 30 秒\n· 断联后指数退避重试：30s → 60s → 120s → 240s → 300s（上限），恢复后立即回到 30s\n· 推送失败重试：2s 起步指数放大，上限 5 分钟，并服从服务端 Retry-After\n· 退避带 ±20% 随机抖动，避免多设备同时重连打爆服务端"
                         android:textColor="?attr/colorOnSurfaceVariant"
-                        android:textSize="13sp" />
+                        android:textSize="14sp" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
@@ -201,7 +201,7 @@
                         android:layout_marginTop="8dp"
                         android:text="通知监听被系统断开时自动重新绑定（10 秒兜底重试）。建议同时完成以下设置："
                         android:textColor="?attr/colorOnSurfaceVariant"
-                        android:textSize="13sp" />
+                        android:textSize="14sp" />
 
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_battery"
@@ -272,7 +272,7 @@
                         android:lineSpacingExtra="2dp"
                         android:text="借助 Shizuku（ADB / root 授权）下发系统命令：把本应用、支付宝、微信加入 Doze 白名单、提升待机桶到 active、放开后台 appop，并自动授予 Android 15 敏感通知权限。未安装 Shizuku 时可查看下方 ADB 等效命令手动执行。"
                         android:textColor="?attr/colorOnSurfaceVariant"
-                        android:textSize="12sp" />
+                        android:textSize="13sp" />
 
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_shizuku_auth"
@@ -353,7 +353,7 @@
                             android:minHeight="32dp"
                             android:paddingHorizontal="12dp"
                             android:text="清除"
-                            android:textSize="12sp"
+                            android:textSize="13sp"
                             style="@style/Widget.Material3.Button.TextButton" />
                     </RelativeLayout>
 
@@ -373,7 +373,7 @@
                             android:fontFamily="monospace"
                             android:padding="12dp"
                             android:textColor="?attr/colorOnSurfaceVariant"
-                            android:textSize="12sp" />
+                            android:textSize="13sp" />
                     </ScrollView>
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>

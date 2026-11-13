@@ -8,10 +8,10 @@ android {
         applicationId "com.vone.qrcode"
         minSdk 24
         targetSdk 34
-        versionCode 4
+        versionCode 5
         // 3.1 为首个正式签名版本（测试钥已弃用，老测试用户需卸载重装）
         // 3.3.0 起 versionName 与发布 tag 对齐，避免应用内版本与 Release 名称不一致
-        versionName "3.3.0"
+        versionName "3.3.1"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }
     

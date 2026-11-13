@@ -7,7 +7,7 @@
     android:orientation="vertical"
     android:focusable="true"
     android:focusableInTouchMode="true"
-    android:background="@color/backgroundColor"
+    android:background="?attr/colorSurface"
     tools:context="com.vone.vmq.MainActivity">
 
     <include layout="@layout/toolbar_main" />
@@ -90,7 +90,7 @@
                         android:layout_marginTop="4dp"
                         android:text="最近成功：--　延迟：--ms"
                         android:textColor="?attr/colorOnSurfaceVariant"
-                        android:textSize="13sp" />
+                        android:textSize="14sp" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
