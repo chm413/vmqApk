@@ -35,6 +35,7 @@ import com.google.android.material.materialswitch.MaterialSwitch;
 import com.google.android.material.textfield.TextInputEditText;
 import com.google.android.material.textfield.TextInputLayout;
 import com.google.zxing.activity.CaptureActivity;
+import com.vone.qrcode.R;
 import com.vone.vmq.util.Constant;
 
 import java.io.IOException;
