@@ -40,6 +40,8 @@ Shizuku 以 **shell(uid 2000) / root** 身份提供 Binder 通道，应用无需
 - versionCode 3 → 4，versionName 3.1 → 3.3.0（本版起与发布 tag 对齐，此前 tag 与 versionName 不同步）
 - **最低系统要求提升：Android 6.0 (API 23) → Android 7.0 (API 24)**。原因：`dev.rikka.shizuku:api:13.1.5` 声明 minSdk 24，Manifest 合并无法降级。Android 6.0 设备将无法安装本版，可继续停留在 V3.2.3。
 - 新增依赖：`dev.rikka.shizuku:api:13.1.5`、`dev.rikka.shizuku:provider:13.1.5`（Maven Central）
+- 命令执行走 **Shizuku user service**（`IRemoteShell` AIDL + `RemoteShellService`，由 `bindUserService` 拉起），
+  而非 `Shizuku.newProcess`——后者自 13.1.1 起已私有化并计划在 API 14 移除
 - Manifest 新增 `ShizukuProvider` 与 `moe.shizuku.manager.permission.API_V23` 声明
 - 未安装 Shizuku 时所有入口安全降级，不影响心跳/推送/仪表盘等其他功能
 
@@ -55,8 +57,10 @@ Shizuku 以 **shell(uid 2000) / root** 身份提供 Binder 通道，应用无需
 - [ ] 未安装 Shizuku：设置页状态显示「未运行」，点授权弹引导，一键保活提示先授权
 - [ ] 已安装未授权：状态「等待授权」，点授权后变「已授权 v13.x」
 - [ ] 授权后一键保活：15 条命令（3 个包 × 5 条）全部 `exit=0`
+- [ ] 授权后状态文案出现「执行通道已就绪」
 - [ ] `adb shell am get-standby-bucket com.tencent.mm` 返回 `active`
 - [ ] `adb shell cmd deviceidle whitelist` 列表包含三个包名
+- [ ] `adb shell ps -A | grep vmqshell` 能看到 `<包名>:vmqshell` 进程（退出应用后应消失）
 
 ---
 

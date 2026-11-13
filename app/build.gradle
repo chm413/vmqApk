@@ -17,6 +17,8 @@ android {
     
     buildFeatures {
         buildConfig true
+        // Shizuku user service 通过 AIDL（IRemoteShell）与本应用通信
+        aidl true
     }
     
     signingConfigs {

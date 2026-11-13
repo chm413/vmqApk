@@ -231,10 +231,29 @@ public class SettingsActivity extends AppCompatActivity {
         progress.show();
 
         new Thread(() -> {
+            // 先单独确认执行通道（Shizuku user service 绑定是异步的），
+            // 失败时给一条明确提示，而不是把 15 条命令全部标成 ✘。
+            if (!ShizukuKeepAlive.ensureBound(this)) {
+                runOnUiThread(() -> {
+                    progress.dismiss();
+                    new MaterialAlertDialogBuilder(this)
+                            .setTitle("Shizuku 执行通道未就绪")
+                            .setMessage("请确认：\n"
+                                    + "1. Shizuku 已安装并正在运行\n"
+                                    + "2. 已在本页点「授权 Shizuku」并同意\n"
+                                    + "3. 授权后 Shizuku 未被系统或省电策略杀掉\n\n"
+                                    + "若反复失败，可点「查看 ADB 等效命令」在电脑上执行。")
+                            .setPositiveButton("知道了", null)
+                            .show();
+                    refreshShizukuStatus();
+                });
+                return;
+            }
+
             StringBuilder report = new StringBuilder();
             boolean allOk = true;
             for (String command : commands) {
-                String result = ShizukuKeepAlive.exec(command);
+                String result = ShizukuKeepAlive.exec(SettingsActivity.this, command);
                 boolean ok = result.contains("exit=0");
                 allOk &= ok;
                 report.append(ok ? "✔ " : "✘ ").append(command).append('\n');
