@@ -45,6 +45,17 @@ public class ForegroundServer extends Service {
 
     private final long MIN_SHOW_TIME = 2000;
     private final long MAX_SHOW_TIME = 20000;
+    /** 前台推送连续失败的最大退避间隔：5 分钟 */
+    private static final long MAX_PUSH_BACKOFF_MS = 300_000L;
+    /** 当前推送任务的连续失败次数（成功清零） */
+    private int pushAttempt = 0;
+
+    private long nextPushDelay(IOException e) {
+        long delay = Utils.backoffDelayMs(pushAttempt, MIN_SHOW_TIME, MAX_PUSH_BACKOFF_MS);
+        Log.d("ForegroundServer", "推送重试退避 " + delay + "ms（连续失败 " + pushAttempt + " 次）: "
+                + (e != null ? e.getMessage() : "服务端拒绝"));
+        return delay;
+    }
 
     private long enterTime;
 
@@ -125,7 +136,8 @@ public class ForegroundServer extends Service {
             });
             return;
         }
-        // 失败后按服务端允许的最短间隔重试，避免 429 期间持续撞击限流器。
+        // 失败后按服务端允许的最短间隔重试，避免 429 期间持续撞击限流器；
+        // 连续失败叠加指数退避（5s→10s→20s...上限 5 分钟），成功后计数在下一笔推送重置。
         handler.postDelayed(new Runnable() {
             @Override
             public void run() {
@@ -135,7 +147,8 @@ public class ForegroundServer extends Service {
                     @Override
                     public void onFailure(Call call, IOException e) {
                         Log.d("ForegroundServer", "前台推送请求失败: " + e.getMessage());
-                        tryPushByUrl(url, count - 1, MIN_SHOW_TIME);
+                        pushAttempt++;
+                        tryPushByUrl(url, count - 1, nextPushDelay(e));
                     }
 
                     @Override
@@ -145,13 +158,18 @@ public class ForegroundServer extends Service {
                             Log.d("ForegroundServer", "前台推送结果: " + result.summary());
                             if (!result.isSuccessful()) {
                                 Log.d("ForegroundServer", "前台推送未被服务端接受，重试");
+                                pushAttempt++;
                                 tryPushByUrl(
                                         url,
                                         count - 1,
-                                        result.foregroundRetryDelayMillis(MIN_SHOW_TIME)
+                                        Math.max(
+                                                result.foregroundRetryDelayMillis(MIN_SHOW_TIME),
+                                                Utils.backoffDelayMs(pushAttempt, MIN_SHOW_TIME, MAX_PUSH_BACKOFF_MS)
+                                        )
                                 );
                                 return;
                             }
+                            pushAttempt = 0;
 
                             Log.d("ForegroundServer", "前台推送成功，退出前台");
                             handler.post(new Runnable() {

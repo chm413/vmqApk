@@ -46,6 +46,12 @@
         <activity
             android:name="com.google.zxing.activity.CaptureActivity"
             android:excludeFromRecents="true" />
+
+        <activity
+            android:name="com.vone.vmq.SettingsActivity"
+            android:label="设置"
+            android:exported="false"
+            android:parentActivityName="com.vone.vmq.MainActivity" />
         
         <activity
             android:name="com.vone.vmq.SplashScreenTestActivity"

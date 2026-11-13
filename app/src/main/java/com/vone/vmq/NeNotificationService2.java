@@ -2,6 +2,7 @@ package com.vone.vmq;
 
 import android.annotation.SuppressLint;
 import android.app.Notification;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -38,6 +39,11 @@ import okhttp3.Response;
 public class NeNotificationService2 extends NotificationListenerService {
     private static String TAG = "NeNotificationService2";
     public static final String ACTION_LOG_UPDATE = "com.vone.vmq.LOG_UPDATE";
+    /** 心跳基础间隔：30s；断联时按指数退避放大到上限 5 分钟 */
+    private static final long HEART_INTERVAL_MS = 30_000L;
+    private static final long HEART_MAX_BACKOFF_MS = 300_000L;
+    /** 连续心跳失败次数，成功即清零（volatile：心跳回调线程与循环线程共享） */
+    private volatile int heartFailures = 0;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private String host = "";
     private String key = "";
@@ -96,12 +102,15 @@ public class NeNotificationService2 extends NotificationListenerService {
                     String sign = MonitorSign.heartbeat(t, key);
 
                     final String url = scheme + "://" + host + "/api/monitor/heart?t=" + t + "&sign=" + sign;
+                    final long requestStart = System.currentTimeMillis();
                     Request request = new Request.Builder().url(url).method("GET", null).build();
                     Call call = Utils.getOkHttpClient(NeNotificationService2.this).newCall(request);
                     call.enqueue(new Callback() {
                         @Override
                         public void onFailure(Call call, IOException e) {
                             Log.w(TAG, "心跳请求失败: " + e.getMessage());
+                            heartFailures++;
+                            recordHeartResult(false, 0, e.getMessage());
                             foregroundHeart(url, 0L);
                         }
 
@@ -113,20 +122,31 @@ public class NeNotificationService2 extends NotificationListenerService {
                                 Log.d(TAG, "心跳服务结果: " + result.summary());
                                 if (!result.isSuccessful()) {
                                     Log.w(TAG, "心跳未被服务端接受，触发前台重试");
+                                    heartFailures++;
+                                    recordHeartResult(false, 0, result.summary());
                                     foregroundHeart(url, result.foregroundRetryDelayMillis(0L));
                                 } else {
                                     Log.d(TAG, "心跳服务请求成功");
+                                    heartFailures = 0;
+                                    recordHeartResult(true, System.currentTimeMillis() - requestStart, null);
                                 }
                             } catch (Exception e) {
                                 Log.e(TAG, "心跳服务解析异常: " + e.getMessage(), e);
+                                heartFailures++;
+                                recordHeartResult(false, 0, e.getMessage());
                                 foregroundHeart(url, 0L);
                             } finally {
                                 response.close();
                             }
                         }
                     });
+                    // 断联退避：连续失败时 30s→60s→120s→240s→300s(上限)，成功立即回落到 30s
+                    long sleepMs = Utils.backoffDelayMs(heartFailures, HEART_INTERVAL_MS, HEART_MAX_BACKOFF_MS);
+                    if (heartFailures > 0) {
+                        Log.d(TAG, "心跳连续失败 " + heartFailures + " 次，下次重试间隔 " + sleepMs + "ms");
+                    }
                     try {
-                        Thread.sleep(30 * 1000);
+                        Thread.sleep(sleepMs);
                     } catch (InterruptedException e) {
                         e.printStackTrace();
                     }
@@ -134,6 +154,28 @@ public class NeNotificationService2 extends NotificationListenerService {
             }
         });
         newThread.start(); //启动线程
+    }
+
+    /**
+     * 记录最近心跳结果供主页仪表盘展示（跨进程/页面共享，写入 SharedPreferences）。
+     */
+    private void recordHeartResult(boolean ok, long latencyMs, String error) {
+        try {
+            SharedPreferences.Editor editor = getSharedPreferences("vone", MODE_PRIVATE).edit();
+            if (ok) {
+                editor.putLong("last_heart_ok_at", System.currentTimeMillis());
+                editor.putLong("last_heart_latency_ms", latencyMs);
+                editor.putInt("last_heart_fail_count", 0);
+            } else {
+                editor.putLong("last_heart_fail_at", System.currentTimeMillis());
+                editor.putInt("last_heart_fail_count", heartFailures);
+                if (error != null) {
+                    editor.putString("last_heart_error", error);
+                }
+            }
+            editor.apply();
+        } catch (Exception ignored) {
+        }
     }
 
     /**
@@ -201,6 +243,35 @@ public class NeNotificationService2 extends NotificationListenerService {
             newThread.interrupt();
         }
         newThread = null;
+        // 保活：监听被系统回收/断开时主动请求重新绑定，10 秒后仍未恢复则再兜底一次
+        scheduleRebind();
+    }
+
+    /**
+     * 保活兜底：请求系统重新绑定通知监听服务。
+     * Android 7.0+ 提供 requestRebind；失败（权限被撤销等）只记录日志，不抛给系统。
+     */
+    private void scheduleRebind() {
+        rebindListener("断开即重绑");
+        handler.postDelayed(() -> {
+            if (!isRunning) {
+                rebindListener("10 秒兜底重绑");
+            }
+        }, 10_000L);
+    }
+
+    private void rebindListener(String reason) {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                requestRebind(new ComponentName(this, NeNotificationService2.class));
+                Log.i(TAG, "监听服务未就绪，已请求 rebind（" + reason + "）");
+                sendBroadcastLog("监听服务断开，正在自动恢复（" + reason + "）");
+            }
+        } catch (Exception e) {
+            // SecurityException：通知使用权被用户关闭，需引导重新授权
+            Log.w(TAG, "rebind 失败（" + reason + "）: " + e.getMessage());
+            sendBroadcastLog("监听服务自动恢复失败，请检查通知使用权: " + e.getMessage());
+        }
     }
 
     private void writeNotifyToFile(StatusBarNotification sbn) {

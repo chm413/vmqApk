@@ -58,6 +58,23 @@ class Utils {
      * 默认 false：信任自签证书——个人收款监控端场景，自签 https（加密不校验 CA）
      * 相对明文 http 是严格的安全性提升。
      */
+    /**
+     * 指数退避：第 n 次连续失败 -> base * 2^(n-1)，上限 max，附加 ±20% 抖动（避免多设备同时重连）。
+     * failures<=0 时返回 base。
+     */
+    public static long backoffDelayMs(int failures, long baseMs, long maxMs) {
+        if (failures <= 0) {
+            return baseMs;
+        }
+        int shift = Math.min(failures - 1, 10);
+        long delay = baseMs << shift;
+        if (delay <= 0 || delay > maxMs) {
+            delay = maxMs;
+        }
+        long jitter = (long) (delay * 0.2 * Math.random());
+        return Math.min(delay + jitter, maxMs);
+    }
+
     public static OkHttpClient getOkHttpClient(Context context) {
         boolean verify = context != null
                 && context.getSharedPreferences("vone", Context.MODE_PRIVATE)

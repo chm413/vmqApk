@@ -54,6 +54,9 @@ import com.vone.vmq.util.Constant;
 import org.json.JSONObject;
 
 import java.io.IOException;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Locale;
 
 import okhttp3.Call;
 import okhttp3.Callback;
@@ -82,6 +85,12 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
     private static String scheme = "http";
     /** 证书校验开关：开启后走系统 CA 严格校验，默认关闭以兼容自签证书 */
     private com.google.android.material.materialswitch.MaterialSwitch swVerifySsl;
+    // 主页仪表盘视图
+    private TextView tvServer;
+    private TextView tvVerify;
+    private TextView tvListener;
+    private TextView tvHeart;
+    private TextView tvHeartDetail;
     int id = 0;
 
     // Activity Result Launchers - 替换过时的startActivityForResult
@@ -125,51 +134,13 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
         
         setContentView(R.layout.activity_main);
 
-        edtHost = (TextInputEditText) findViewById(R.id.edt_host);
-        edtKey = (TextInputEditText) findViewById(R.id.edt_key);
-        swVerifySsl = (com.google.android.material.materialswitch.MaterialSwitch) findViewById(R.id.sw_verify_ssl);
-        logTextView = (TextView) findViewById(R.id.log_text_view);
-        logScrollView = (ScrollView) findViewById(R.id.log_scroll_view);
-        btnClearLogsInline = (com.google.android.material.button.MaterialButton) findViewById(R.id.btn_clear_logs_inline);
-        
-        // 初始化清除按钮状态
-        updateClearButtonState();
-
-        // 读入保存的配置数据并显示在输入框中
-        SharedPreferences read = getSharedPreferences("vone", MODE_PRIVATE);
-        host = read.getString("host", "");
-        key = read.getString("key", "");
-        scheme = read.getString("scheme", "http");
-
-        // 证书校验开关：实时持久化；切换立即生效（客户端按需选取，无需重启）
-        swVerifySsl.setChecked(read.getBoolean("verify_ssl", false));
-        swVerifySsl.setOnCheckedChangeListener((buttonView, isChecked) ->
-                getSharedPreferences("vone", MODE_PRIVATE).edit()
-                        .putBoolean("verify_ssl", isChecked).apply());
-
-        if (!TextUtils.isEmpty(host)) {
-            edtHost.setText(host);
-        }
-        if (!TextUtils.isEmpty(key)) {
-            edtKey.setText(key);
-        }
-        isOk = !TextUtils.isEmpty(host) && !TextUtils.isEmpty(key);
-
-        // 绑定输入监听器，实现编辑框实时保存
-        TextWatcher realtimeSaver = new TextWatcher() {
-            @Override
-            public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
-
-            @Override
-            public void onTextChanged(CharSequence s, int start, int before, int count) {}
-
-            @Override
-            public void afterTextChanged(Editable s) {
-                saveConfigRealtime();
-            }
-        };
-        edtHost.addTextChangedListener(realtimeSaver);
-        edtKey.addTextChangedListener(realtimeSaver);
+        // 主页只做状态展示（配置摘要 + 心跳状态），所有可写配置在设置页
+        tvServer = findViewById(R.id.tv_server);
+        tvVerify = findViewById(R.id.tv_verify);
+        tvListener = findViewById(R.id.tv_listener);
+        tvHeart = findViewById(R.id.tv_heart);
+        tvHeartDetail = findViewById(R.id.tv_heart_detail);
+        refreshStatus();
 
         //检测通知使用权是否启用
         if (!isNotificationListenersEnabled()) {
@@ -221,6 +192,69 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
         if (performanceOptimizer != null) {
             performanceOptimizer.recordMainActivityReady();
         }
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        refreshStatus();
+    }
+
+    /**
+     * 刷新主页仪表盘：配置摘要、监听服务状态、心跳状态。
+     * 心跳数据由通知监听服务写入 vone prefs（last_heart_ok_at / last_heart_fail_*）。
+     */
+    private void refreshStatus() {
+        if (tvServer == null) {
+            return;
+        }
+        SharedPreferences read = getSharedPreferences("vone", MODE_PRIVATE);
+        host = read.getString("host", "");
+        key = read.getString("key", "");
+        scheme = read.getString("scheme", "http");
+        isOk = !TextUtils.isEmpty(host) && !TextUtils.isEmpty(key);
+        boolean verifySsl = read.getBoolean("verify_ssl", false);
+
+        tvServer.setText(TextUtils.isEmpty(host)
+                ? "服务器：未配置（到设置页填写）"
+                : "服务器：" + scheme + "://" + host);
+        tvVerify.setText("证书校验：" + (verifySsl ? "开启（系统 CA 严格校验）" : "关闭（兼容自签证书）"));
+
+        boolean listenerEnabled = isNotificationListenersEnabled();
+        if (listenerEnabled) {
+            tvListener.setText("监听服务：已授权" + (NeNotificationService2.isRunning ? " · 运行中" : " · 等待连接"));
+        } else {
+            tvListener.setText("监听服务：未授权，请到系统设置开启通知使用权");
+        }
+        tvListener.setTextColor(ContextCompat.getColor(this,
+                listenerEnabled ? R.color.md_theme_light_primary : R.color.md_theme_light_error));
+
+        long okAt = read.getLong("last_heart_ok_at", 0L);
+        long failAt = read.getLong("last_heart_fail_at", 0L);
+        int failCount = read.getInt("last_heart_fail_count", 0);
+        long latency = read.getLong("last_heart_latency_ms", 0L);
+        boolean online = okAt > 0 && System.currentTimeMillis() - okAt < 90_000L;
+
+        if (online) {
+            tvHeart.setText("心跳：在线");
+            tvHeart.setTextColor(ContextCompat.getColor(this, R.color.md_theme_light_primary));
+        } else if (failCount > 0 && failAt >= okAt) {
+            tvHeart.setText("心跳：离线（连续失败 " + failCount + " 次，指数退避重试中）");
+            tvHeart.setTextColor(ContextCompat.getColor(this, R.color.md_theme_light_error));
+        } else {
+            tvHeart.setText("心跳：等待首次上报");
+            tvHeart.setTextColor(ContextCompat.getColor(this, R.color.md_theme_light_onSurfaceVariant));
+        }
+
+        String okText = okAt > 0
+                ? new SimpleDateFormat("MM-dd HH:mm:ss", Locale.getDefault()).format(new Date(okAt))
+                : "--";
+        tvHeartDetail.setText("最近成功：" + okText + "　延迟：" + (latency > 0 ? latency + "ms" : "--"));
+    }
+
+    /** 进入设置页（服务器 / 保活 / 日志） */
+    public void goSettings(View view) {
+        startActivity(new Intent(this, SettingsActivity.class));
     }
 
     /**
@@ -439,6 +473,11 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
     private void appendLog(final String message) {
         // 在release版本中过滤启动画面相关日志
         if (!BuildConfig.DEBUG && shouldFilterLogMessage(message)) {
+            return;
+        }
+        // 主页不再展示日志（日志视图已迁移到设置页），无视图时只写系统日志
+        if (logTextView == null || logScrollView == null) {
+            Log.d(TAG, message);
             return;
         }
         
@@ -721,6 +760,12 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
                     public void run() {
                         Toast.makeText(MainActivity.this, "心跳状态错误，请检查配置是否正确!", Toast.LENGTH_SHORT).show();
                         appendLog("心跳请求失败: " + e.getMessage());
+                        getSharedPreferences("vone", MODE_PRIVATE).edit()
+                                .putLong("last_heart_fail_at", System.currentTimeMillis())
+                                .putInt("last_heart_fail_count",
+                                        getSharedPreferences("vone", MODE_PRIVATE).getInt("last_heart_fail_count", 0) + 1)
+                                .apply();
+                        refreshStatus();
                     }
                 });
             }
@@ -757,6 +802,11 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
                                     Toast.makeText(MainActivity.this, "心跳返回：" + msg, Toast.LENGTH_LONG).show();
                                     appendLog("心跳成功: " + msg);
                                     Log.d(TAG, "心跳成功");
+                                    getSharedPreferences("vone", MODE_PRIVATE).edit()
+                                            .putLong("last_heart_ok_at", System.currentTimeMillis())
+                                            .putInt("last_heart_fail_count", 0)
+                                            .apply();
+                                    refreshStatus();
                                 } else {
                                     // 错误状态
                                     Toast.makeText(MainActivity.this, "心跳错误：" + msg, Toast.LENGTH_LONG).show();
@@ -788,7 +838,9 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
     public void clearLogs(View view) {
         // 添加触觉反馈
         view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
-        logTextView.setText("");
+        if (logTextView != null) {
+            logTextView.setText("");
+        }
         // 更新清除按钮状态
         updateClearButtonState();
     }
