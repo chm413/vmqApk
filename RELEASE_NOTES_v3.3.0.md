@@ -38,6 +38,7 @@ Shizuku 以 **shell(uid 2000) / root** 身份提供 Binder 通道，应用无需
 ## 🔧 其他
 
 - versionCode 3 → 4，versionName 3.1 → 3.3.0（本版起与发布 tag 对齐，此前 tag 与 versionName 不同步）
+- **最低系统要求提升：Android 6.0 (API 23) → Android 7.0 (API 24)**。原因：`dev.rikka.shizuku:api:13.1.5` 声明 minSdk 24，Manifest 合并无法降级。Android 6.0 设备将无法安装本版，可继续停留在 V3.2.3。
 - 新增依赖：`dev.rikka.shizuku:api:13.1.5`、`dev.rikka.shizuku:provider:13.1.5`（Maven Central）
 - Manifest 新增 `ShizukuProvider` 与 `moe.shizuku.manager.permission.API_V23` 声明
 - 未安装 Shizuku 时所有入口安全降级，不影响心跳/推送/仪表盘等其他功能
@@ -45,6 +46,7 @@ Shizuku 以 **shell(uid 2000) / root** 身份提供 Binder 通道，应用无需
 ## ⚠️ 升级说明
 
 - 同签名覆盖安装（vmqfox.keystore）
+- **仅支持 Android 7.0 及以上**（V3.2.3 是最后一个支持 Android 6.0 的版本）
 - Shizuku 为**可选**能力：不装也能正常用，只是保活需要手写 adb 命令
 - Shizuku 授权可随时在 Shizuku 应用中撤销
 
