@@ -8,9 +8,10 @@ android {
         applicationId "com.vone.qrcode"
         minSdk 23
         targetSdk 34
-        versionCode 3
+        versionCode 4
         // 3.1 为首个正式签名版本（测试钥已弃用，老测试用户需卸载重装）
-        versionName "3.1"
+        // 3.3.0 起 versionName 与发布 tag 对齐，避免应用内版本与 Release 名称不一致
+        versionName "3.3.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }
     
@@ -76,6 +77,9 @@ dependencies {
     implementation 'com.squareup.okio:okio:3.6.0'
     implementation 'com.google.android.material:material:1.11.0'
     implementation 'androidx.core:core-splashscreen:1.0.1'
+    // Shizuku：通过 ADB / root 权限通道下发保活与权限命令（可选能力，未安装时降级为 ADB 指令引导）
+    implementation 'dev.rikka.shizuku:api:13.1.5'
+    implementation 'dev.rikka.shizuku:provider:13.1.5'
     testImplementation 'junit:junit:4.13.2'
     testImplementation 'org.mockito:mockito-core:5.7.0'
     testImplementation 'org.robolectric:robolectric:4.11.1'

@@ -24,6 +24,7 @@ import android.widget.Toast;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.Toolbar;
 import androidx.core.app.ActivityCompat;
@@ -39,11 +40,14 @@ import com.vone.qrcode.R;
 import com.vone.vmq.util.Constant;
 
 import java.io.IOException;
+import java.util.Collections;
+import java.util.List;
 
 import okhttp3.Call;
 import okhttp3.Callback;
 import okhttp3.Request;
 import okhttp3.Response;
+import rikka.shizuku.Shizuku;
 
 /**
  * 设置页：服务器配置、心跳与重试说明、保活入口、运行日志。
@@ -62,6 +66,8 @@ public class SettingsActivity extends AppCompatActivity {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private ActivityResultLauncher<Intent> qrLauncher;
     private BroadcastReceiver logReceiver;
+    private TextView tvShizukuStatus;
+    private Shizuku.OnRequestPermissionResultListener shizukuPermissionListener;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -106,6 +112,27 @@ public class SettingsActivity extends AppCompatActivity {
             }
         });
 
+        tvShizukuStatus = findViewById(R.id.tv_shizuku_status);
+        findViewById(R.id.btn_shizuku_auth).setOnClickListener(v -> requestShizuku());
+        findViewById(R.id.btn_shizuku_keepalive).setOnClickListener(v -> runShizukuKeepAlive());
+        findViewById(R.id.btn_shizuku_notif).setOnClickListener(v -> runShizukuNotificationGrant());
+        findViewById(R.id.btn_shizuku_adb).setOnClickListener(v -> showAdbCommands());
+
+        shizukuPermissionListener = (requestCode, grantResult) -> {
+            if (requestCode == ShizukuKeepAlive.REQUEST_CODE) {
+                refreshShizukuStatus();
+                Toast.makeText(this,
+                        grantResult == PackageManager.PERMISSION_GRANTED ? "Shizuku 授权成功" : "Shizuku 授权被拒绝",
+                        Toast.LENGTH_SHORT).show();
+            }
+        };
+        try {
+            Shizuku.addRequestPermissionResultListener(shizukuPermissionListener);
+        } catch (Throwable ignored) {
+            // Shizuku 未安装/未运行时注册失败，属预期情况
+        }
+        refreshShizukuStatus();
+
         IntentFilter filter = new IntentFilter(NeNotificationService2.ACTION_LOG_UPDATE);
         logReceiver = new BroadcastReceiver() {
             @Override
@@ -122,8 +149,20 @@ public class SettingsActivity extends AppCompatActivity {
     }
 
     @Override
+    protected void onResume() {
+        super.onResume();
+        refreshShizukuStatus();
+    }
+
+    @Override
     protected void onDestroy() {
         super.onDestroy();
+        if (shizukuPermissionListener != null) {
+            try {
+                Shizuku.removeRequestPermissionResultListener(shizukuPermissionListener);
+            } catch (Throwable ignored) {
+            }
+        }
         if (logReceiver != null) {
             try {
                 unregisterReceiver(logReceiver);
@@ -131,6 +170,101 @@ public class SettingsActivity extends AppCompatActivity {
             }
         }
     }
+
+    // ---------------- Shizuku 增强保活 ----------------
+
+    private void refreshShizukuStatus() {
+        if (tvShizukuStatus == null) {
+            return;
+        }
+        tvShizukuStatus.setText(ShizukuKeepAlive.statusText());
+        int color;
+        if (ShizukuKeepAlive.isGranted()) {
+            color = R.color.md_theme_light_primary;
+        } else if (ShizukuKeepAlive.isAvailable()) {
+            color = R.color.md_theme_light_onSurface;
+        } else {
+            color = R.color.md_theme_light_error;
+        }
+        tvShizukuStatus.setTextColor(ContextCompat.getColor(this, color));
+    }
+
+    private void requestShizuku() {
+        if (!ShizukuKeepAlive.isAvailable()) {
+            new MaterialAlertDialogBuilder(this)
+                    .setTitle("Shizuku 未运行")
+                    .setMessage("请先安装并启动 Shizuku（无线调试或 root 启动），再回到本页授权。\n\n"
+                            + "不使用 Shizuku 也可以：点「查看 ADB 等效命令」，在电脑上执行同样的保活命令。")
+                    .setPositiveButton("知道了", null)
+                    .show();
+            return;
+        }
+        ShizukuKeepAlive.requestPermission();
+    }
+
+    /** 一键保活：本应用 + 支付宝 + 微信（Doze 白名单 / active 待机桶 / 后台 appop）。 */
+    private void runShizukuKeepAlive() {
+        if (!ShizukuKeepAlive.isGranted()) {
+            Toast.makeText(this, "请先授权 Shizuku", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        List<String> commands = ShizukuKeepAlive.keepAliveCommands(getPackageName());
+        executeBatchAsync("支付宝 / 微信 / 本应用 保活", commands);
+    }
+
+    /** Android 15 敏感通知权限：替代 README 里的 adb 命令。 */
+    private void runShizukuNotificationGrant() {
+        if (!ShizukuKeepAlive.isGranted()) {
+            Toast.makeText(this, "请先授权 Shizuku", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        executeBatchAsync("敏感通知权限",
+                Collections.singletonList(ShizukuKeepAlive.sensitiveNotificationCommand(getPackageName())));
+    }
+
+    private void executeBatchAsync(final String title, final List<String> commands) {
+        final AlertDialog progress = new MaterialAlertDialogBuilder(this)
+                .setTitle(title)
+                .setMessage("正在执行…")
+                .setCancelable(false)
+                .create();
+        progress.show();
+
+        new Thread(() -> {
+            StringBuilder report = new StringBuilder();
+            boolean allOk = true;
+            for (String command : commands) {
+                String result = ShizukuKeepAlive.exec(command);
+                boolean ok = result.contains("exit=0");
+                allOk &= ok;
+                report.append(ok ? "✔ " : "✘ ").append(command).append('\n');
+                if (!ok) {
+                    report.append("   ").append(result.replace("\n", " ")).append('\n');
+                }
+            }
+            final String text = report.toString();
+            final boolean success = allOk;
+            runOnUiThread(() -> {
+                progress.dismiss();
+                new MaterialAlertDialogBuilder(this)
+                        .setTitle(success ? title + "：全部成功" : title + "：部分命令失败")
+                        .setMessage(text)
+                        .setPositiveButton("知道了", null)
+                        .show();
+                refreshShizukuStatus();
+            });
+        }).start();
+    }
+
+    private void showAdbCommands() {
+        new MaterialAlertDialogBuilder(this)
+                .setTitle("ADB 等效命令")
+                .setMessage(ShizukuKeepAlive.adbEquivalents(getPackageName()))
+                .setPositiveButton("知道了", null)
+                .show();
+    }
+
+    // ---------------- 日志 ----------------
 
     private void loadConfig() {
         SharedPreferences read = getSharedPreferences(PREFS, MODE_PRIVATE);
