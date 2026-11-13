@@ -50,6 +50,12 @@ import okhttp3.Request;
 import okhttp3.Response;
 import rikka.shizuku.Shizuku;
 
+// AGP 8 默认 nonTransitiveRClass=true，app 的 R 只含本模块资源。
+// colorPrimary / colorOnSurface / colorError 由 material 库声明，必须取库的 R.attr。
+import static com.google.android.material.R.attr.colorError;
+import static com.google.android.material.R.attr.colorOnSurface;
+import static com.google.android.material.R.attr.colorPrimary;
+
 /**
  * 设置页：服务器配置、心跳与重试说明、保活入口、运行日志。
  * 主页只做状态展示，所有可写配置集中在这里。
@@ -182,11 +188,11 @@ public class SettingsActivity extends AppCompatActivity {
         // 按主题属性取色，避免深色模式下用浅色常量导致对比度不足
         int colorAttr;
         if (ShizukuKeepAlive.isGranted()) {
-            colorAttr = R.attr.colorPrimary;
+            colorAttr = colorPrimary;
         } else if (ShizukuKeepAlive.isAvailable()) {
-            colorAttr = R.attr.colorOnSurface;
+            colorAttr = colorOnSurface;
         } else {
-            colorAttr = R.attr.colorError;
+            colorAttr = colorError;
         }
         tvShizukuStatus.setTextColor(MaterialColors.getColor(tvShizukuStatus, colorAttr));
     }

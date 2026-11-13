@@ -64,6 +64,12 @@ import okhttp3.Callback;
 import okhttp3.Request;
 import okhttp3.Response;
 
+// AGP 8 默认 nonTransitiveRClass=true，app 的 R 只含本模块资源。
+// colorPrimary / colorError / colorOnSurfaceVariant 由 material 库声明，必须取库的 R.attr。
+import static com.google.android.material.R.attr.colorError;
+import static com.google.android.material.R.attr.colorOnSurfaceVariant;
+import static com.google.android.material.R.attr.colorPrimary;
+
 public class MainActivity extends AppCompatActivity implements ThemeChangeListener {
 
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -230,7 +236,7 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
         // 必须按主题属性取色（?attr/colorPrimary 等）。此前用的是 R.color.md_theme_light_*，
         // 那是固定浅色值：深色模式下 #6750A4 / #49454F 落在 #1C1B1F 背景上对比度不足 2:1，文字几乎不可见。
         tvListener.setTextColor(MaterialColors.getColor(tvListener,
-                listenerEnabled ? R.attr.colorPrimary : R.attr.colorError));
+                listenerEnabled ? colorPrimary : colorError));
 
         long okAt = read.getLong("last_heart_ok_at", 0L);
         long failAt = read.getLong("last_heart_fail_at", 0L);
@@ -240,13 +246,13 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
 
         if (online) {
             tvHeart.setText("心跳：在线");
-            tvHeart.setTextColor(MaterialColors.getColor(tvHeart, R.attr.colorPrimary));
+            tvHeart.setTextColor(MaterialColors.getColor(tvHeart, colorPrimary));
         } else if (failCount > 0 && failAt >= okAt) {
             tvHeart.setText("心跳：离线（连续失败 " + failCount + " 次，指数退避重试中）");
-            tvHeart.setTextColor(MaterialColors.getColor(tvHeart, R.attr.colorError));
+            tvHeart.setTextColor(MaterialColors.getColor(tvHeart, colorError));
         } else {
             tvHeart.setText("心跳：等待首次上报");
-            tvHeart.setTextColor(MaterialColors.getColor(tvHeart, R.attr.colorOnSurfaceVariant));
+            tvHeart.setTextColor(MaterialColors.getColor(tvHeart, colorOnSurfaceVariant));
         }
 
         String okText = okAt > 0
