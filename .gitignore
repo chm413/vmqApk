@@ -11,3 +11,5 @@
 *.keystore
 /app/authkey.jks
 /.kiro
+# CI 生成的 Release 正文临时文件
+.release-body.md

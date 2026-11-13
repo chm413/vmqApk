@@ -75,11 +75,30 @@ jobs:
           git commit -m "ci: build log for ${GITHUB_REF_NAME}" || true
           git push -f origin HEAD:refs/heads/ci-log || true
 
+      # 把对应版本的发布说明作为 Release 正文。
+      # tag 是大写 V3.3.0，说明文件名是小写 v3.3.0，两种写法都探测；
+      # 找不到时写入占位内容，保证 body_path 始终指向存在的文件。
+      - name: Resolve release notes body
+        run: |
+          set -uo pipefail
+          tag="${GITHUB_REF_NAME}"
+          lower=$(printf '%s' "$tag" | tr 'A-Z' 'a-z')
+          for f in "RELEASE_NOTES_${tag}.md" "RELEASE_NOTES_${lower}.md"; do
+            if [ -f "$f" ]; then
+              echo "使用发布说明: $f"
+              cp "$f" .release-body.md
+              exit 0
+            fi
+          done
+          echo "未找到 RELEASE_NOTES_${tag}.md，Release 正文使用占位内容"
+          printf '构建产物见下方 APK。详细变更请查看仓库提交记录。\n' > .release-body.md
+
       # 产物路径固定为 app-release.apk，与历史 Release 资产同名，
       # overwrite_files 允许修订同一 tag 时直接替换旧包。
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ inputs.tag_name || github.ref_name }}
+          body_path: .release-body.md
           overwrite_files: true
           files: app/build/outputs/apk/release/app-release.apk
