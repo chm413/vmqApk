@@ -1,7 +1,8 @@
 # V免签 v3.2.0 发布说明
 
 > 发布日期：2026-11-13
-> Release 地址：https://github.com/chm413/vmqApk/releases/tag/V3.2.0
+> 发布 tag：V3.2.3（V3.2.0～V3.2.2 为 CI 排查期间的空构建，勿下载）
+Release 地址：https://github.com/chm413/vmqApk/releases/tag/V3.2.3
 
 ## 🎨 重构：主页仪表盘 + 独立设置页
 
@@ -42,7 +43,7 @@
 
 ## 📋 版本信息
 
-- 版本号 3.1（versionCode 3），tag `V3.2.0`
+- 版本号 3.1（versionCode 3），发布 tag `V3.2.3`
 - 最低 SDK 23 / 目标 SDK 34
 - 同签名覆盖安装即可（vmqfox.keystore）
 
