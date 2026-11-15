@@ -41,6 +41,14 @@ public class NeNotificationService2 extends NotificationListenerService {
     /** 心跳基础间隔：30s；断联时按指数退避放大到上限 5 分钟 */
     private static final long HEART_INTERVAL_MS = 30_000L;
     private static final long HEART_MAX_BACKOFF_MS = 300_000L;
+    /**
+     * 收款推送期间持有电源锁的上限。
+     *
+     * <p>从 5 秒放宽到 15 秒：5 秒在弱网下不够一次 POST 走完，锁会提前自动释放，
+     * 而此时推送回调又去 {@code release()} 一个已经不存在的锁 —— 会闪退（见 {@link #releaseWakeLock()}）。
+     * 带超时的锁本身不会泄漏，放宽的代价只是极端情况下多亮 10 秒屏。</p>
+     */
+    private static final long WAKE_LOCK_TIMEOUT_MS = 15_000L;
     /** 连续心跳失败次数，成功即清零（volatile：心跳回调线程与循环线程共享） */
     private volatile int heartFailures = 0;
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -50,8 +58,21 @@ public class NeNotificationService2 extends NotificationListenerService {
     /** 存活监控线程（微信 / 支付宝），与心跳线程并行、独立生命周期 */
     private Thread aliveThread = null;
     private PowerManager.WakeLock mWakeLock = null;
-    public static boolean isRunning;
+    /**
+     * 监听服务是否处于已连接状态。
+     *
+     * <p>写在主线程（onListenerConnected / onListenerDisconnected），
+     * 读在心跳线程与存活监控线程。<b>必须 volatile</b>：此前靠 interrupt / notifyAll
+     * 的锁语义"顺带"保证可见性，一旦某条路径只置标志不唤醒，线程就看不到变化。</p>
+     */
+    public static volatile boolean isRunning;
 
+    /**
+     * 申请设备电源锁，最多持有 {@value #WAKE_LOCK_TIMEOUT_MS} 毫秒。
+     *
+     * <p>这里用带超时的 {@code acquire}，即使后续 {@link #releaseWakeLock()} 因为
+     * 回调丢失没被调用，锁也会自己到期释放，不会变成"永久持锁吸干电池"。</p>
+     */
     //申请设备电源锁
     @SuppressLint("InvalidWakeLockTag")
     public void acquireWakeLock(final Context context) {
@@ -62,32 +83,76 @@ public class NeNotificationService2 extends NotificationListenerService {
                     PowerManager pm = (PowerManager) context.getSystemService(Context.POWER_SERVICE);
                     if (pm != null) {
                         mWakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK | PowerManager.ON_AFTER_RELEASE, "WakeLock");
+                        // 不计数：重复 acquire 不累加引用，一次 release 就能放开。
+                        // 否则同一个锁被 acquire 两次、只 release 一次，会永远留着不放开。
+                        mWakeLock.setReferenceCounted(false);
                     }
                 }
                 if (null != mWakeLock) {
-                    mWakeLock.acquire(5000);
+                    mWakeLock.acquire(WAKE_LOCK_TIMEOUT_MS);
                 }
             }
         });
-
     }
 
+    /**
+     * 释放设备电源锁。
+     *
+     * <p><b>必须容忍"锁已经不在手上"</b>：{@code acquire(timeout)} 到点后系统会自动释放，
+     * 若此时网络请求才失败回调进来，直接 {@code release()} 会抛
+     * {@code RuntimeException: WakeLock under-locked}，而这段跑在主线程 —— 应用直接闪退。
+     * 断网时请求耗时超过 5 秒是常态，所以这条路径在真实环境里很容易被踩到。</p>
+     */
     //释放设备电源锁
     public void releaseWakeLock() {
         handler.post(new Runnable() {
             @Override
             public void run() {
-                if (null != mWakeLock) {
-                    mWakeLock.release();
-                    mWakeLock = null;
+                final PowerManager.WakeLock lock = mWakeLock;
+                mWakeLock = null;
+                if (lock == null) {
+                    return;
+                }
+                try {
+                    if (lock.isHeld()) {
+                        lock.release();
+                    }
+                } catch (Throwable t) {
+                    // 极少数厂商 ROM 的 isHeld 与实际引用计数不一致，兜底吞掉
+                    AppLog.w(TAG, "释放电源锁失败（已忽略）: " + t.getClass().getSimpleName());
                 }
             }
         });
     }
 
+    /**
+     * 让一条旧的循环线程退场，但<b>不 join</b>（本方法可能跑在主线程上，join 会卡 UI）。
+     *
+     * <p>调用方必须<b>先</b>把字段置空再调本方法，顺序不能反：旧线程在 {@code wait()} 返回后
+     * 会先查循环条件 {@code newThread == Thread.currentThread()}，字段若还是它自己就会
+     * 若无其事地再跑一轮，等字段随后被换成新线程，它就又成了没人能叫醒的孤儿。
+     * 置空在前，这条自我校验立刻失败。</p>
+     *
+     * <p>{@code interrupt} 负责把挂在 {@link RunSwitch} 的 {@code wait()} 上的旧线程拽出来，
+     * 它会抛 {@code InterruptedException}、返回 {@code false}，循环随即 {@code break}。</p>
+     */
+    private static void retireThread(Thread old, String name) {
+        if (old == null || !old.isAlive()) {
+            return;
+        }
+        AppLog.w(TAG, name + " 已存在，先停旧线程再重启（疑似 onListenerConnected 重复回调）");
+        old.interrupt();
+    }
+
     //心跳进程
     public void initAppHeart() {
         AppLog.d(TAG, "开始启动心跳线程");
+        // 系统重绑 / requestRebind 成功时 onListenerConnected 可能被连续回调两次。
+        // 若直接覆盖字段，旧线程若正挂在上报关闭的 wait() 上，就再没人能唤醒它了 ——
+        // 字段已被换掉，onListenerDisconnected 也只 interrupt 新线程，形成永久泄漏。
+        Thread previousHeart = newThread;
+        newThread = null;
+        retireThread(previousHeart, "心跳线程");
         newThread = new Thread(new Runnable() {
             @Override
             public void run() {
@@ -188,6 +253,9 @@ public class NeNotificationService2 extends NotificationListenerService {
      * 结果写入 SharedPreferences 供主页/设置页展示，同时每次检测都记一条日志。</p>
      */
     private void initAliveMonitor() {
+        Thread previousAlive = aliveThread;
+        aliveThread = null;
+        retireThread(previousAlive, "存活监控线程");
         aliveThread = new Thread(() -> {
             AppLog.i(TAG, "存活监控线程启动，间隔 " + AliveMonitor.getIntervalMinutes(this) + " 分钟");
             long nextCheckAt = 0L;

@@ -40,6 +40,19 @@ public final class RunSwitch {
 
     private static final Object LOCK = new Object();
 
+    /**
+     * 安全阀：挂起最多 {@value} 毫秒就自行醒来复查一次状态。
+     *
+     * <p>理论上是死循环风险的下限保障，不是轮询。若将来有人新增了"定时暂停"之类
+     * 直接写 {@code SharedPreferences} 而不经过本类 setter 的路径，没有安全阀时
+     * 线程会永久挂在 {@code wait()} 上，既不复位也没人能唤醒它。</p>
+     *
+     * <p>代价可以忽略：{@code Object.wait(timeout)} 在 CPU 进入 suspend 时定时器不被服务，
+     * <b>不会把设备从 Doze 里唤醒</b>，只在本就醒着时由内核调度一次；
+     * 5 分钟一次相对于心跳 30 秒一次是两个数量级的差别。</p>
+     */
+    private static final long SAFETY_VALVE_MS = 5 * 60_000L;
+
     private RunSwitch() {
     }
 
@@ -125,6 +138,9 @@ public final class RunSwitch {
      * <p>线程在此处被 {@link Object#wait()} 挂起，不占 CPU、不产生定时唤醒，
      * 相当于把这条后台线程"冻结"住，但进程与监听服务仍然存活。</p>
      *
+     * <p>等待带 {@link #SAFETY_VALVE_MS} 上限：到了就自行醒来复查一遍再继续等，
+     * 保证任何漏调 {@link #notifyChanged()} 的改动都不会让线程永久挂死。</p>
+     *
      * @return {@code true} 已恢复运行；{@code false} 被 interrupt（应退出线程）
      */
     public static boolean awaitActive(Context context) {
@@ -134,7 +150,7 @@ public final class RunSwitch {
         synchronized (LOCK) {
             while (!isAnyActive(context)) {
                 try {
-                    LOCK.wait();
+                    LOCK.wait(SAFETY_VALVE_MS);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     return false;
@@ -160,7 +176,7 @@ public final class RunSwitch {
         synchronized (LOCK) {
             while (!isReportEnabled(context)) {
                 try {
-                    LOCK.wait();
+                    LOCK.wait(SAFETY_VALVE_MS);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     return false;

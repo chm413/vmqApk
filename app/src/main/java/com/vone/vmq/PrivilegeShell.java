@@ -36,8 +36,18 @@ public final class PrivilegeShell {
     /** 单条命令的最长等待时间。su 授权框没人点时会一直阻塞，必须兜底。 */
     private static final long ROOT_TIMEOUT_MS = 12_000L;
 
-    /** Root 探测结果缓存时长 */
+    /** Root 探测结论（明确可用 / 明确不可用）的缓存时长 */
     private static final long ROOT_CACHE_MS = 60_000L;
+
+    /**
+     * Root 探测<b>超时</b>结论的缓存时长，必须显著短于 {@link #ROOT_CACHE_MS}。
+     *
+     * <p>"超时"不等于"没有 Root"——它多半意味着授权框刚弹出、用户正在找那个按钮。
+     * 若按 60 秒缓存，用户 30 秒后点了允许，接下来半分钟里所有保活命令仍然全部失败，
+     * 表现就是"明明授权了却不生效"。这里只压 15 秒，既避免每轮巡检都去弹框，
+     * 又保证用户点完允许后几乎立刻生效。</p>
+     */
+    private static final long ROOT_TIMEOUT_CACHE_MS = 15_000L;
 
     public enum Channel {
         /** 没有可用通道 */
@@ -80,6 +90,19 @@ public final class PrivilegeShell {
 
     private static volatile Boolean rootUsable;
     private static volatile long rootCheckedAt;
+    /** 当前这份结论的有效期：正常结论 60 秒，超时结论 15 秒 */
+    private static volatile long rootTtl = ROOT_CACHE_MS;
+    /** 缓存代号：每次作废 +1，让正在进行的探测丢弃过时的结论（替代加锁，避免 UI 线程被拖住） */
+    private static volatile long cacheGeneration;
+
+    /**
+     * 探测串行化锁。
+     *
+     * <p>不加锁时，存活巡检线程与设置页的「检测 Root」可能<b>同时</b>fork 两个 {@code su}，
+     * Magisk 会连弹两个授权框（用户点掉一个还有一个），而且两次 12 秒探测互相叠加。
+     * 串行化后后到者直接命中前者的缓存结论。</p>
+     */
+    private static final Object PROBE_LOCK = new Object();
 
     private PrivilegeShell() {
     }
@@ -108,8 +131,13 @@ public final class PrivilegeShell {
 
     /** 清空探测缓存，下次询问会重新跑一次 {@code su -c id}。 */
     public static void invalidateRootCache() {
+        // 刻意不去抢 PROBE_LOCK：isRootAvailable 探测期间会持锁最长 12 秒，
+        // 而本方法会被设置页在主线程调用（切换执行通道），抢锁就等于让界面卡 12 秒 → ANR。
+        // 用代号（generation）代替锁：正在跑的探测发现代号变了就丢弃自己的结论。
+        cacheGeneration++;
         rootUsable = null;
         rootCheckedAt = 0L;
+        rootTtl = ROOT_CACHE_MS;
     }
 
     /** 只读缓存，不触发探测。未探测过返回 {@code null}。给 UI 用（不阻塞）。 */
@@ -118,19 +146,37 @@ public final class PrivilegeShell {
     }
 
     /**
-     * Root 是否可用。<b>可能阻塞最长 {@value #ROOT_TIMEOUT_MS} 毫秒</b>（授权框等待），
-     * 结果缓存 {@value #ROOT_CACHE_MS} 毫秒。
+     * Root 是否可用。<b>可能阻塞最长 {@value #ROOT_TIMEOUT_MS} 毫秒</b>（授权框等待）。
+     *
+     * <p>结论缓存：明确的可用 / 不可用缓存 {@value #ROOT_CACHE_MS} 毫秒；
+     * 超时这种"还不知道"只缓存 {@value #ROOT_TIMEOUT_CACHE_MS} 毫秒，
+     * 以免用户随后点了允许却迟迟不生效。</p>
+     *
+     * <p>加锁只为把并发探测串起来（否则会同时 fork 两个 {@code su} 弹两个授权框），
+     * 不承担失效职责 —— 失效走 {@link #invalidateRootCache()} 的代号。</p>
      */
     public static boolean isRootAvailable(Context context) {
-        Boolean cached = rootUsable;
-        long now = System.currentTimeMillis();
-        if (cached != null && now - rootCheckedAt < ROOT_CACHE_MS) {
-            return cached;
+        synchronized (PROBE_LOCK) {
+            long now = System.currentTimeMillis();
+            Boolean cached = rootUsable;
+            if (cached != null && now - rootCheckedAt < rootTtl) {
+                return cached;
+            }
+            long generation = cacheGeneration;
+            String raw = execRoot("id");
+            boolean usable = raw.contains("uid=0") && raw.contains("exit=0");
+            boolean timedOut = raw.startsWith("su 超时");
+            // 探测期间缓存被作废过 → 这次的结论已经过时，不写回，交给下一次重新探
+            if (generation == cacheGeneration) {
+                rootUsable = usable;
+                rootCheckedAt = System.currentTimeMillis();
+                rootTtl = timedOut ? ROOT_TIMEOUT_CACHE_MS : ROOT_CACHE_MS;
+            }
+            if (timedOut) {
+                AppLog.w("Privilege", "Root 探测超时：若刚才弹出了授权框，点允许后约 15 秒内生效");
+            }
+            return usable;
         }
-        boolean ok = probeRoot();
-        rootUsable = ok;
-        rootCheckedAt = now;
-        return ok;
     }
 
     /** 探测放到后台线程，回调在主线程（给设置页刷新状态用）。 */
@@ -148,12 +194,6 @@ public final class PrivilegeShell {
                 main.post(onDone);
             }
         }, "vmq-root-probe").start();
-    }
-
-    private static boolean probeRoot() {
-        String raw = execRoot("id");
-        boolean ok = raw.contains("uid=0") && raw.contains("exit=0");
-        return ok;
     }
 
     // ---------------- 通道解析 ----------------
@@ -222,21 +262,55 @@ public final class PrivilegeShell {
     /**
      * 用 {@code su -c} 执行命令。
      *
-     * <p>先 {@code waitFor} 再读输出：本应用下发的命令（am / cmd / pidof / monkey）
-     * 输出都只有一两行，不会把管道缓冲区写满，因此不存在"读之前就死锁"的风险；
-     * 而先等进程结束才能区分"没输出"和"命令没跑起来"。</p>
+     * <p><b>必须先起读线程，再 {@code waitFor}</b>。管道缓冲区只有约 64KB，
+     * 一旦子进程的输出超过这个量，它会阻塞在 {@code write} 上等我们读走；
+     * 而我们又在等它退出 —— 双方互等，直到 {@value #ROOT_TIMEOUT_MS} 毫秒超时才解开，
+     * 命令被误判成"未授权"。{@code pm list packages}、{@code dumpsys} 这类命令轻松超限，
+     * 所以不能依赖"本应用下发的命令输出都很短"这个前提。</p>
      */
     private static String execRoot(String command) {
         Process process = null;
+        Thread reader = null;
+        final StringBuilder sink = new StringBuilder();
         try {
             ProcessBuilder builder = new ProcessBuilder("su", "-c", command);
             builder.redirectErrorStream(true);
             process = builder.start();
+
+            final InputStream stdout = process.getInputStream();
+            reader = new Thread(() -> {
+                try {
+                    ByteArrayOutputStream out = new ByteArrayOutputStream();
+                    byte[] buf = new byte[4096];
+                    int n;
+                    while ((n = stdout.read(buf)) > 0) {
+                        out.write(buf, 0, n);
+                    }
+                    synchronized (sink) {
+                        sink.append(new String(out.toByteArray(), "UTF-8"));
+                    }
+                } catch (Throwable ignored) {
+                    // 进程被 destroy 时 read 会抛异常，属正常收尾路径，不记录
+                }
+            }, "vmq-su-reader");
+            reader.setDaemon(true);
+            reader.start();
+
             if (!process.waitFor(ROOT_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
                 return "su 超时（未授权或授权框未响应）\nexit=-1";
             }
-            String output = readAll(process.getInputStream());
+            // 进程已退出，输出通常已读完；最多再等 1 秒兜住管道里残留的尾巴。
+            // 单独 catch 中断：不能让它掉进下面的 Throwable 分支被误报成"su 不可用"。
+            try {
+                reader.join(1000L);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+            }
             int code = process.exitValue();
+            String output;
+            synchronized (sink) {
+                output = sink.toString();
+            }
             StringBuilder sb = new StringBuilder(output);
             if (sb.length() > 0 && sb.charAt(sb.length() - 1) != '\n') {
                 sb.append('\n');
@@ -252,20 +326,9 @@ public final class PrivilegeShell {
             if (process != null) {
                 process.destroy();
             }
-        }
-    }
-
-    private static String readAll(InputStream in) {
-        try {
-            ByteArrayOutputStream out = new ByteArrayOutputStream();
-            byte[] buf = new byte[4096];
-            int n;
-            while ((n = in.read(buf)) > 0) {
-                out.write(buf, 0, n);
+            if (reader != null) {
+                reader.interrupt();
             }
-            return new String(out.toByteArray(), "UTF-8");
-        } catch (Throwable t) {
-            return "";
         }
     }
 
