@@ -92,7 +92,31 @@ public class NeNotificationService2 extends NotificationListenerService {
             @Override
             public void run() {
                 AppLog.d(TAG, "心跳线程启动！");
+                long nextHeartAt = 0L;
                 while (isRunning && newThread == Thread.currentThread()) {
+                    // 上报开关关闭时线程挂起在 wait() 上：不发请求、不退避、不产生唤醒。
+                    // 注意这里必须等"上报"这一个开关，不能等 isAnyActive，
+                    // 否则在"监听开、上报关"的组合下会被立刻唤醒造成忙等。
+                    if (!RunSwitch.isReportEnabled(NeNotificationService2.this)) {
+                        AppLog.i(TAG, "心跳上报已关闭，线程进入休眠（进程与监听服务保留）");
+                        nextHeartAt = 0L;
+                        if (!RunSwitch.awaitReportEnabled(NeNotificationService2.this)) {
+                            break;
+                        }
+                        AppLog.i(TAG, "心跳上报已开启，线程恢复");
+                        continue;
+                    }
+                    // 还没到点就继续等。被开关变化提前唤醒时重新判断：
+                    // 若仍开启则接着把剩余时间睡完，不会因为动了下别的开关就多发一次心跳。
+                    if (nextHeartAt > 0L) {
+                        long remain = nextHeartAt - System.currentTimeMillis();
+                        if (remain > 0L) {
+                            if (!RunSwitch.sleepOrWakeup(remain)) {
+                                break;
+                            }
+                            continue;
+                        }
+                    }
                     SharedPreferences read = getSharedPreferences("vone", MODE_PRIVATE);
                     host = read.getString("host", "");
                     key = read.getString("key", "");
@@ -145,12 +169,11 @@ public class NeNotificationService2 extends NotificationListenerService {
                     if (heartFailures > 0) {
                         AppLog.d(TAG, "心跳连续失败 " + heartFailures + " 次，下次重试间隔 " + sleepMs + "ms");
                     }
-                    try {
-                        Thread.sleep(sleepMs);
-                    } catch (InterruptedException e) {
-                        e.printStackTrace();
-                    }
+                    // 只记下截止时间，真正的等待放到循环顶部：这样"关开关立即停"和
+                    // "不因无关开关变化而多发心跳"两件事可以同时成立。
+                    nextHeartAt = System.currentTimeMillis() + sleepMs;
                 }
+                AppLog.i(TAG, "心跳线程退出");
             }
         });
         newThread.start(); //启动线程
@@ -167,24 +190,46 @@ public class NeNotificationService2 extends NotificationListenerService {
     private void initAliveMonitor() {
         aliveThread = new Thread(() -> {
             AppLog.i(TAG, "存活监控线程启动，间隔 " + AliveMonitor.getIntervalMinutes(this) + " 分钟");
+            long nextCheckAt = 0L;
             while (isRunning && aliveThread == Thread.currentThread()) {
                 try {
+                    // 监听与上报都关 → 保活一并停止：
+                    // 线程挂起在 wait() 上（零 CPU、无定时唤醒），进程与监听服务仍然保留，
+                    // 重新打开开关会立刻唤醒，不需要重启应用。
+                    if (!RunSwitch.isAnyActive(this)) {
+                        AppLog.i(TAG, "监听与上报均已关闭，保活循环进入休眠（不退出进程）");
+                        nextCheckAt = 0L;
+                        if (!RunSwitch.awaitActive(this)) {
+                            break;
+                        }
+                        AppLog.i(TAG, "监听/上报已恢复，保活循环重新开始");
+                        continue;
+                    }
+                    // 未到检查时刻就继续等；被无关开关提前唤醒时接着睡剩余时间，
+                    // 不会因为动了下别的开关就额外跑一次 pidof
+                    if (nextCheckAt > 0L) {
+                        long remain = nextCheckAt - System.currentTimeMillis();
+                        if (remain > 0L) {
+                            if (!RunSwitch.sleepOrWakeup(remain)) {
+                                break;
+                            }
+                            continue;
+                        }
+                    }
                     if (AliveMonitor.isMonitorEnabled(this)) {
-                        AliveMonitor.checkAndRecord(this, ShizukuKeepAlive.PKG_ALIPAY);
-                        AliveMonitor.checkAndRecord(this, ShizukuKeepAlive.PKG_WECHAT);
+                        AliveMonitor.Status alipay =
+                                AliveMonitor.checkAndRecord(this, ShizukuKeepAlive.PKG_ALIPAY);
+                        AliveMonitor.maybeRevive(this, alipay);
+                        AliveMonitor.Status wechat =
+                                AliveMonitor.checkAndRecord(this, ShizukuKeepAlive.PKG_WECHAT);
+                        AliveMonitor.maybeRevive(this, wechat);
                     }
                     long interval = Math.max(1, AliveMonitor.getIntervalMinutes(this)) * 60_000L;
-                    Thread.sleep(interval);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    break;
+                    nextCheckAt = System.currentTimeMillis() + interval;
                 } catch (Throwable t) {
                     // 单次检测异常不能让监控线程整体退出
                     AppLog.e(TAG, "存活监控异常", t);
-                    try {
-                        Thread.sleep(30_000L);
-                    } catch (InterruptedException ie) {
-                        Thread.currentThread().interrupt();
+                    if (!RunSwitch.sleepOrWakeup(30_000L)) {
                         break;
                     }
                 }
@@ -234,6 +279,12 @@ public class NeNotificationService2 extends NotificationListenerService {
      */
     @Override
     public void onNotificationPosted(StatusBarNotification sbn) {
+        // 最前置的闸门：关闭监听后连解析都不做。
+        // 放在最前面（而不是解析完再判断）是为了真的省下这些开销，
+        // 也避免"关着还在落库/写日志"把日志刷满。
+        if (!RunSwitch.isListenEnabled(this)) {
+            return;
+        }
         AppLog.d(TAG, "接受到通知消息");
         
         // Android 14+ 额外的通知验证

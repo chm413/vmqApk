@@ -22,11 +22,16 @@ import java.util.List;
  * </ul>
  * 因此这里按能力分层，<b>绝不把"不知道"伪装成"没运行"</b>：
  * <ol>
- *   <li><b>Shizuku</b>：{@code pidof <pkg>}，退出码 0 且输出非空即确实在跑。这是唯一精确的来源。</li>
+ *   <li><b>提权通道</b>（{@link PrivilegeShell}，Root 优先、回落 Shizuku）：
+ *       {@code pidof <pkg>}，退出码 0 且输出非空即确实在跑。这是唯一精确的来源。</li>
  *   <li><b>UsageStatsManager</b>：需用户在系统设置授予"使用情况访问权限"。
  *       只能推断"最近 {@value #USAGE_WINDOW_MIN} 分钟内有过前台活动"，不等于进程存活。</li>
  *   <li>两者都不可用 → {@link State#UNKNOWN}，界面明确显示"无法检测"。</li>
  * </ol>
+ *
+ * <h3>检测到未运行之后</h3>
+ * 有提权通道且开启自动拉起时，{@link #maybeRevive} 会用 {@code am start} 把应用重新启动起来
+ * ——改待机桶只是降低被杀的概率，真被杀了只有重新拉起才有意义。
  */
 public final class AliveMonitor {
 
@@ -128,25 +133,29 @@ public final class AliveMonitor {
 
     /** 执行一次检测（可能阻塞，必须在后台线程调用）。 */
     public static Status check(Context context, String pkg) {
-        Status byShizuku = checkByShizuku(context, pkg);
-        if (byShizuku != null) {
-            return byShizuku;
+        Status byPidof = checkByPidof(context, pkg);
+        if (byPidof != null) {
+            return byPidof;
         }
         Status byUsage = checkByUsageStats(context, pkg);
         if (byUsage != null) {
             return byUsage;
         }
         return new Status(pkg, State.UNKNOWN, "none",
-                "未安装/未授权 Shizuku，且未授予使用情况访问权限", System.currentTimeMillis());
+                "无可用提权通道（Root / Shizuku），且未授予使用情况访问权限",
+                System.currentTimeMillis());
     }
 
-    private static Status checkByShizuku(Context context, String pkg) {
-        if (!ShizukuKeepAlive.isGranted()) {
+    /**
+     * 用 {@code pidof} 精确判断，走 {@link PrivilegeShell}（Root 优先，回落 Shizuku）。
+     */
+    private static Status checkByPidof(Context context, String pkg) {
+        if (!PrivilegeShell.isChannelAvailable(context)) {
             return null;
         }
         String raw;
         try {
-            raw = ShizukuKeepAlive.exec(context, "pidof " + pkg);
+            raw = PrivilegeShell.exec(context, "pidof " + pkg);
         } catch (Throwable t) {
             AppLog.w(TAG, "pidof " + pkg + " 调用异常: " + t.getClass().getSimpleName());
             return null;
@@ -285,9 +294,97 @@ public final class AliveMonitor {
         return status;
     }
 
+    // ---------------- 自动拉起 ----------------
+
+    /** 同一应用两次拉起的最小间隔：太频繁会变成"无限拉起"，既耗电也扰民。 */
+    private static final long REVIVE_COOLDOWN_MS = 10 * 60_000L;
+    /** 每小时最多拉起次数。 */
+    private static final int REVIVE_MAX_PER_HOUR = 6;
+
+    /**
+     * 检测结果为「未运行」时尝试把微信 / 支付宝拉起来。
+     *
+     * <p>这才是"保活"实质性的一步：改待机桶、加 Doze 白名单只是降低被杀的<b>概率</b>，
+     * 应用真的被杀了之后只有把它重新启动起来才有意义。单靠非 root 应用做不到，
+     * 必须有 {@link PrivilegeShell} 的提权通道。</p>
+     *
+     * <p>三重防抖：① 只有 {@link State#NOT_RUNNING} 才动；② 同应用 10 分钟冷却；
+     * ③ 每小时最多 6 次。避免出现"拉起→被杀→立刻再拉起"的死循环。</p>
+     *
+     * @return 是否真的执行了拉起并成功
+     */
+    public static boolean maybeRevive(Context context, Status status) {
+        if (context == null || status == null || status.state != State.NOT_RUNNING) {
+            return false;
+        }
+        if (!RunSwitch.isAutoReviveEnabled(context)) {
+            return false;
+        }
+        if (!PrivilegeShell.isChannelAvailable(context)) {
+            // 没有提权通道时静默跳过：这在纯 UsageStats 模式下是常态，不该刷屏
+            return false;
+        }
+        String slot = slotOf(status.pkg);
+        String name = displayName(status.pkg);
+        if (!acquireReviveQuota(context, slot, name)) {
+            return false;
+        }
+        String command = launchCommand(status.pkg);
+        AppLog.event("KeepAlive", "自动拉起 " + name, command);
+        String result = PrivilegeShell.exec(context, command);
+        boolean ok = result.contains("exit=0");
+        AppLog.event("KeepAlive", (ok ? "拉起成功 " : "拉起失败 ") + name, firstLine(result));
+        return ok;
+    }
+
+    /**
+     * 拉起指定包的主界面。
+     *
+     * <p>不写死 Activity 名（微信/支付宝每次大版本都可能改），
+     * 而是让系统解析 LAUNCHER，再用 {@code am start -n} 精确启动。</p>
+     */
+    private static String launchCommand(String pkg) {
+        return "act=$(cmd package resolve-activity --brief " + pkg + " | tail -n1); "
+                + "am start -n \"$act\"";
+    }
+
+    private static boolean acquireReviveQuota(Context context, String slot, String name) {
+        long now = System.currentTimeMillis();
+        long hour = now / 3_600_000L;
+        SharedPreferences p = prefs(context);
+        long last = p.getLong("revive_" + slot + "_last_at", 0L);
+        long savedHour = p.getLong("revive_" + slot + "_hour", -1L);
+        int count = savedHour == hour ? p.getInt("revive_" + slot + "_hour_count", 0) : 0;
+
+        long elapsed = now - last;
+        if (last > 0L && elapsed < REVIVE_COOLDOWN_MS) {
+            long remainMin = (REVIVE_COOLDOWN_MS - elapsed) / 60_000L + 1;
+            AppLog.d(TAG, "跳过自动拉起 " + name + "：冷却中，约 " + remainMin + " 分钟后可再试");
+            return false;
+        }
+        if (count >= REVIVE_MAX_PER_HOUR) {
+            AppLog.w(TAG, "跳过自动拉起 " + name + "：本小时已达上限 " + REVIVE_MAX_PER_HOUR + " 次");
+            return false;
+        }
+        p.edit()
+                .putLong("revive_" + slot + "_last_at", now)
+                .putLong("revive_" + slot + "_hour", hour)
+                .putInt("revive_" + slot + "_hour_count", count + 1)
+                .apply();
+        return true;
+    }
+
+    private static String firstLine(String raw) {
+        if (raw == null || raw.isEmpty()) {
+            return "";
+        }
+        int idx = raw.indexOf('\n');
+        String head = idx < 0 ? raw : raw.substring(0, idx);
+        return head.length() > 200 ? head.substring(0, 200) + "…" : head;
+    }
+
     /** 读取上次记录的状态，从未检测过返回 null。 */
-    public static State readState(Context context, String slot) {
-        String raw = prefs(context).getString("alive_" + slot + "_state", null);
+    public static State readState(Context context, String slot) {        String raw = prefs(context).getString("alive_" + slot + "_state", null);
         if (raw == null) {
             return null;
         }

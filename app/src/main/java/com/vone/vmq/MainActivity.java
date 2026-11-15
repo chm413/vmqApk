@@ -45,6 +45,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import com.google.android.material.color.MaterialColors;
+import com.google.android.material.materialswitch.MaterialSwitch;
 import com.google.android.material.textfield.TextInputEditText;
 import com.google.zxing.activity.CaptureActivity;
 
@@ -95,6 +96,10 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
     private TextView tvHeart;
     private TextView tvHeartDetail;
     private TextView tvAlive;
+    private TextView tvRunState;
+    private MaterialSwitch swMaster;
+    /** 同步总开关时置真，避免 setChecked 被当成用户操作 */
+    private boolean syncingMaster;
     int id = 0;
 
     // Activity Result Launchers - 替换过时的startActivityForResult
@@ -145,6 +150,18 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
         tvHeart = findViewById(R.id.tv_heart);
         tvHeartDetail = findViewById(R.id.tv_heart_detail);
         tvAlive = findViewById(R.id.tv_alive);
+        tvRunState = findViewById(R.id.tv_run_state);
+        swMaster = findViewById(R.id.sw_master);
+        swMaster.setOnCheckedChangeListener((v, checked) -> {
+            if (syncingMaster) {
+                return;
+            }
+            // 总开关 = 通知监听 + 心跳上报一起开/一起关；
+            // 两者都关后保活循环会自动休眠（线程挂起，不杀进程）
+            RunSwitch.setAll(this, checked);
+            AppLog.event("Run", "总开关", checked ? "开启（监听 + 上报）" : "关闭（监听 + 上报，保活休眠）");
+            refreshStatus();
+        });
         refreshStatus();
 
         //检测通知使用权是否启用
@@ -253,6 +270,22 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
             String wechat = AliveMonitor.summaryOf(this, AliveMonitor.SLOT_WECHAT, "微信");
             String alipay = AliveMonitor.summaryOf(this, AliveMonitor.SLOT_ALIPAY, "支付宝");
             tvAlive.setText(wechat + "\n" + alipay);
+        }
+
+        // 运行总开关：以 prefs 为准同步，避免用户从设置页改完回到主页显示不一致
+        boolean active = RunSwitch.isAnyActive(this);
+        if (swMaster != null) {
+            syncingMaster = true;
+            try {
+                swMaster.setChecked(active);
+            } finally {
+                syncingMaster = false;
+            }
+        }
+        if (tvRunState != null) {
+            tvRunState.setText("采集：" + RunSwitch.summary(this));
+            tvRunState.setTextColor(MaterialColors.getColor(tvRunState,
+                    active ? colorPrimary : colorError));
         }
     }
 

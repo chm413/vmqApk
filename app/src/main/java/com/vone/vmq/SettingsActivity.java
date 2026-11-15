@@ -54,6 +54,7 @@ import rikka.shizuku.Shizuku;
 // colorPrimary / colorOnSurface / colorError 由 material 库声明，必须取库的 R.attr。
 import static com.google.android.material.R.attr.colorError;
 import static com.google.android.material.R.attr.colorOnSurface;
+import static com.google.android.material.R.attr.colorOnSurfaceVariant;
 import static com.google.android.material.R.attr.colorPrimary;
 
 /**
@@ -76,6 +77,14 @@ public class SettingsActivity extends AppCompatActivity {
     private MaterialButton btnAliveInterval;
     private MaterialButton btnLogLevel;
     private TextView tvAliveStatus;
+
+    private MaterialSwitch swListen;
+    private MaterialSwitch swReport;
+    private MaterialSwitch swAutoRevive;
+    private TextView tvRunSummary;
+    private MaterialButton btnPrivMode;
+    /** 同步开关状态时置真，避免 setChecked 被当成用户操作 */
+    private boolean syncingRunSwitches;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private ActivityResultLauncher<Intent> qrLauncher;
@@ -100,6 +109,9 @@ public class SettingsActivity extends AppCompatActivity {
         logScroll = findViewById(R.id.settings_log_scroll);
 
         loadConfig();
+
+        // 运行控制（总闸）
+        bindRunControls();
 
         MaterialButton btnSave = findViewById(R.id.btn_save);
         btnSave.setOnClickListener(v -> saveConfig());
@@ -147,6 +159,9 @@ public class SettingsActivity extends AppCompatActivity {
         refreshAliveStatus();
 
         tvShizukuStatus = findViewById(R.id.tv_shizuku_status);
+        btnPrivMode = findViewById(R.id.btn_priv_mode);
+        btnPrivMode.setOnClickListener(v -> showPrivModePicker());
+        findViewById(R.id.btn_root_probe).setOnClickListener(v -> probeRoot());
         findViewById(R.id.btn_shizuku_auth).setOnClickListener(v -> requestShizuku());
         findViewById(R.id.btn_shizuku_keepalive).setOnClickListener(v -> runShizukuKeepAlive());
         findViewById(R.id.btn_shizuku_notif).setOnClickListener(v -> runShizukuNotificationGrant());
@@ -194,6 +209,7 @@ public class SettingsActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
+        syncRunControls();
         refreshShizukuStatus();
         refreshAliveStatus();
     }
@@ -215,18 +231,92 @@ public class SettingsActivity extends AppCompatActivity {
         }
     }
 
-    // ---------------- Shizuku 增强保活 ----------------
+    // ---------------- 运行控制 ----------------
+
+    /**
+     * 绑定三个运行开关。
+     *
+     * <p>先 {@code setChecked} 再挂监听：否则初始化时会触发一次 onChange，
+     * 把用户没动过的开关当成"刚被点击"记进日志。</p>
+     */
+    private void bindRunControls() {
+        tvRunSummary = findViewById(R.id.tv_run_summary);
+        swListen = findViewById(R.id.sw_listen);
+        swReport = findViewById(R.id.sw_report);
+        swAutoRevive = findViewById(R.id.sw_auto_revive);
+
+        swListen.setOnCheckedChangeListener((v, checked) -> {
+            if (syncingRunSwitches) {
+                return;
+            }
+            RunSwitch.setListenEnabled(this, checked);
+            AppLog.event("Run", "通知监听", checked ? "开启" : "关闭");
+            refreshRunSummary();
+        });
+        swReport.setOnCheckedChangeListener((v, checked) -> {
+            if (syncingRunSwitches) {
+                return;
+            }
+            RunSwitch.setReportEnabled(this, checked);
+            AppLog.event("Run", "心跳上报", checked ? "开启" : "关闭");
+            refreshRunSummary();
+        });
+        swAutoRevive.setOnCheckedChangeListener((v, checked) -> {
+            if (syncingRunSwitches) {
+                return;
+            }
+            RunSwitch.setAutoReviveEnabled(this, checked);
+            AppLog.event("Run", "未运行时自动拉起", checked ? "开启" : "关闭");
+        });
+
+        syncRunControls();
+    }
+
+    /**
+     * 把开关状态同步成 prefs 里的真实值（主页也能改，回到本页必须对齐）。
+     *
+     * <p>同步期间置 {@link #syncingRunSwitches}，避免 setChecked 触发的 onChange
+     * 把"页面刷新"记成"用户操作"。</p>
+     */
+    private void syncRunControls() {
+        if (swListen == null || swReport == null) {
+            return;
+        }
+        syncingRunSwitches = true;
+        try {
+            swListen.setChecked(RunSwitch.isListenEnabled(this));
+            swReport.setChecked(RunSwitch.isReportEnabled(this));
+            swAutoRevive.setChecked(RunSwitch.isAutoReviveEnabled(this));
+        } finally {
+            syncingRunSwitches = false;
+        }
+        refreshRunSummary();
+    }
+
+    private void refreshRunSummary() {
+        if (tvRunSummary == null) {
+            return;
+        }
+        String summary = RunSwitch.summary(this);
+        tvRunSummary.setText("当前：" + summary);
+        boolean active = RunSwitch.isAnyActive(this);
+        tvRunSummary.setTextColor(MaterialColors.getColor(tvRunSummary,
+                active ? colorPrimary : colorOnSurfaceVariant));
+    }
+
+    // ---------------- 保活执行通道（Root / Shizuku） ----------------
 
     private void refreshShizukuStatus() {
         if (tvShizukuStatus == null) {
             return;
         }
-        tvShizukuStatus.setText(ShizukuKeepAlive.statusText());
+        tvShizukuStatus.setText(PrivilegeShell.statusText(this));
+        updatePrivModeButton();
         // 按主题属性取色，避免深色模式下用浅色常量导致对比度不足
         int colorAttr;
-        if (ShizukuKeepAlive.isGranted()) {
+        if (PrivilegeShell.peekRootState() == Boolean.TRUE || ShizukuKeepAlive.isGranted()) {
             colorAttr = colorPrimary;
-        } else if (ShizukuKeepAlive.isAvailable()) {
+        } else if (ShizukuKeepAlive.isAvailable() || PrivilegeShell.peekRootState() == null) {
             colorAttr = colorOnSurface;
         } else {
             colorAttr = colorError;
@@ -234,12 +324,57 @@ public class SettingsActivity extends AppCompatActivity {
         tvShizukuStatus.setTextColor(MaterialColors.getColor(tvShizukuStatus, colorAttr));
     }
 
+    private void updatePrivModeButton() {
+        if (btnPrivMode != null) {
+            btnPrivMode.setText(PrivilegeShell.getMode(this).label);
+        }
+    }
+
+    private void showPrivModePicker() {
+        final PrivilegeShell.Mode[] modes = PrivilegeShell.Mode.values();
+        String[] labels = new String[modes.length];
+        int checked = 0;
+        PrivilegeShell.Mode current = PrivilegeShell.getMode(this);
+        for (int i = 0; i < modes.length; i++) {
+            labels[i] = modes[i].label;
+            if (modes[i] == current) {
+                checked = i;
+            }
+        }
+        new MaterialAlertDialogBuilder(this)
+                .setTitle("保活命令用哪个通道执行")
+                .setSingleChoiceItems(labels, checked, (dialog, which) -> {
+                    PrivilegeShell.setMode(this, modes[which]);
+                    updatePrivModeButton();
+                    refreshShizukuStatus();
+                    AppLog.event("Privilege", "切换执行方式", modes[which].name());
+                    // 换了偏好，重新探测一次再刷新，界面才不会停在旧结论
+                    PrivilegeShell.probeRootAsync(this, this::refreshShizukuStatus);
+                    dialog.dismiss();
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    private void probeRoot() {
+        Toast.makeText(this, "正在检测 Root，若弹出授权框请点「允许」…", Toast.LENGTH_LONG).show();
+        AppLog.event("Privilege", "检测 Root", "用户触发");
+        PrivilegeShell.probeRootAsync(this, () -> {
+            refreshShizukuStatus();
+            boolean ok = PrivilegeShell.peekRootState() == Boolean.TRUE;
+            Toast.makeText(this, ok ? "Root 可用（已拿到 uid=0）" : "Root 不可用：未 Root / 未授权 / su 被拦截",
+                    Toast.LENGTH_LONG).show();
+        });
+    }
+
     private void requestShizuku() {
         if (!ShizukuKeepAlive.isAvailable()) {
             new MaterialAlertDialogBuilder(this)
                     .setTitle("Shizuku 未运行")
                     .setMessage("请先安装并启动 Shizuku（无线调试或 root 启动），再回到本页授权。\n\n"
-                            + "不使用 Shizuku 也可以：点「查看 ADB 等效命令」，在电脑上执行同样的保活命令。")
+                            + "不使用 Shizuku 也可以：\n"
+                            + "· 手机已 Root → 点「检测 Root」，用 su 通道执行同样的命令\n"
+                            + "· 都没条件 → 点「查看 ADB 等效命令」，在电脑上执行")
                     .setPositiveButton("知道了", null)
                     .show();
             return;
@@ -249,20 +384,12 @@ public class SettingsActivity extends AppCompatActivity {
 
     /** 一键保活：本应用 + 支付宝 + 微信（Doze 白名单 / active 待机桶 / 后台 appop）。 */
     private void runShizukuKeepAlive() {
-        if (!ShizukuKeepAlive.isGranted()) {
-            Toast.makeText(this, "请先授权 Shizuku", Toast.LENGTH_SHORT).show();
-            return;
-        }
         List<String> commands = ShizukuKeepAlive.keepAliveCommands(getPackageName());
         executeBatchAsync("支付宝 / 微信 / 本应用 保活", commands);
     }
 
     /** Android 15 敏感通知权限：替代 README 里的 adb 命令。 */
     private void runShizukuNotificationGrant() {
-        if (!ShizukuKeepAlive.isGranted()) {
-            Toast.makeText(this, "请先授权 Shizuku", Toast.LENGTH_SHORT).show();
-            return;
-        }
         executeBatchAsync("敏感通知权限",
                 Collections.singletonList(ShizukuKeepAlive.sensitiveNotificationCommand(getPackageName())));
     }
@@ -277,19 +404,22 @@ public class SettingsActivity extends AppCompatActivity {
         progress.show();
 
         new Thread(() -> {
-            // 先单独确认执行通道（Shizuku user service 绑定是异步的），
+            // 先单独确认执行通道（Root 可能要等 su 授权框；Shizuku user service 绑定是异步的），
             // 失败时给一条明确提示，而不是把 15 条命令全部标成 ✘。
-            if (!ShizukuKeepAlive.ensureBound(this)) {
-                AppLog.w("KeepAlive", title + "中止：Shizuku 执行通道未就绪（未授权或 Shizuku 未运行）");
+            if (!PrivilegeShell.ensureReady(this)) {
+                AppLog.w("KeepAlive", title + "中止：没有可用的提权通道（Root 未授权 / Shizuku 未运行）");
                 runOnUiThread(() -> {
                     progress.dismiss();
                     new MaterialAlertDialogBuilder(this)
-                            .setTitle("Shizuku 执行通道未就绪")
-                            .setMessage("请确认：\n"
-                                    + "1. Shizuku 已安装并正在运行\n"
-                                    + "2. 已在本页点「授权 Shizuku」并同意\n"
-                                    + "3. 授权后 Shizuku 未被系统或省电策略杀掉\n\n"
-                                    + "若反复失败，可点「查看 ADB 等效命令」在电脑上执行。")
+                            .setTitle("没有可用的提权通道")
+                            .setMessage("保活命令需要 Root 或 Shizuku 之一：\n\n"
+                                    + "【已 Root】\n"
+                                    + "1. 点「检测 Root」，在 Magisk / KernelSU 弹框里点「允许」\n"
+                                    + "2. 授权后把执行方式设为「自动」或「仅 Root」\n\n"
+                                    + "【未 Root】\n"
+                                    + "1. 安装并启动 Shizuku\n"
+                                    + "2. 在本页点「授权 Shizuku」并同意\n\n"
+                                    + "两者都不方便时，点「查看 ADB 等效命令」在电脑上执行。")
                             .setPositiveButton("知道了", null)
                             .show();
                     refreshShizukuStatus();
@@ -301,7 +431,7 @@ public class SettingsActivity extends AppCompatActivity {
             boolean allOk = true;
             int failed = 0;
             for (String command : commands) {
-                String result = ShizukuKeepAlive.exec(SettingsActivity.this, command);
+                String result = PrivilegeShell.exec(SettingsActivity.this, command);
                 boolean ok = result.contains("exit=0");
                 allOk &= ok;
                 if (!ok) {
@@ -720,7 +850,7 @@ public class SettingsActivity extends AppCompatActivity {
 
     private String methodLabel(String method) {
         if ("pidof".equals(method)) {
-            return "Shizuku pidof（精确）";
+            return "pidof（精确，经 Root / Shizuku）";
         }
         if ("usage".equals(method)) {
             return "使用情况统计（仅推断活跃，不代表进程存活）";
