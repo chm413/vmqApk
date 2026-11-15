@@ -28,7 +28,7 @@ public class SplashScreenErrorHandler {
      * @param e 资源未找到异常
      */
     public void handleResourceError(Resources.NotFoundException e) {
-        Log.e(TAG, "启动画面资源缺失错误: " + e.getMessage(), e);
+        AppLog.e(TAG, "启动画面资源缺失错误: " + e.getMessage(), e);
         
         // 记录错误到专门的日志系统
         SplashScreenLogger.logError("资源缺失错误", e);
@@ -49,7 +49,7 @@ public class SplashScreenErrorHandler {
             }
             
         } catch (Exception ex) {
-            Log.e(TAG, "处理资源错误时发生异常: " + ex.getMessage(), ex);
+            AppLog.e(TAG, "处理资源错误时发生异常: " + ex.getMessage(), ex);
         }
     }
     
@@ -58,7 +58,7 @@ public class SplashScreenErrorHandler {
      * @param e 运行时异常
      */
     public void handleThemeError(RuntimeException e) {
-        Log.e(TAG, "启动画面主题配置错误: " + e.getMessage(), e);
+        AppLog.e(TAG, "启动画面主题配置错误: " + e.getMessage(), e);
         
         // 记录错误到专门的日志系统
         SplashScreenLogger.logError("主题配置错误", e);
@@ -77,7 +77,7 @@ public class SplashScreenErrorHandler {
             }
             
         } catch (Exception ex) {
-            Log.e(TAG, "处理主题错误时发生异常: " + ex.getMessage(), ex);
+            AppLog.e(TAG, "处理主题错误时发生异常: " + ex.getMessage(), ex);
         }
     }
     
@@ -86,7 +86,7 @@ public class SplashScreenErrorHandler {
      * @param e 不支持操作异常
      */
     public void handleCompatibilityError(UnsupportedOperationException e) {
-        Log.e(TAG, "启动画面兼容性错误: " + e.getMessage(), e);
+        AppLog.e(TAG, "启动画面兼容性错误: " + e.getMessage(), e);
         
         // 记录错误到专门的日志系统
         SplashScreenLogger.logError("兼容性错误", e);
@@ -112,7 +112,7 @@ public class SplashScreenErrorHandler {
             }
             
         } catch (Exception ex) {
-            Log.e(TAG, "处理兼容性错误时发生异常: " + ex.getMessage(), ex);
+            AppLog.e(TAG, "处理兼容性错误时发生异常: " + ex.getMessage(), ex);
         }
     }
     
@@ -122,7 +122,7 @@ public class SplashScreenErrorHandler {
      * @param context 错误上下文描述
      */
     public void handleGeneralError(Exception e, String context) {
-        Log.e(TAG, "启动画面一般性错误 [" + context + "]: " + e.getMessage(), e);
+        AppLog.e(TAG, "启动画面一般性错误 [" + context + "]: " + e.getMessage(), e);
         
         try {
             String errorMessage = "一般性错误 [" + context + "]: " + e.getMessage();
@@ -132,7 +132,7 @@ public class SplashScreenErrorHandler {
             performComprehensiveRecovery();
             
         } catch (Exception ex) {
-            Log.e(TAG, "处理一般性错误时发生异常: " + ex.getMessage(), ex);
+            AppLog.e(TAG, "处理一般性错误时发生异常: " + ex.getMessage(), ex);
         }
     }
     
@@ -151,7 +151,7 @@ public class SplashScreenErrorHandler {
             return true;
             
         } catch (Exception e) {
-            Log.w(TAG, "默认资源也不可用: " + e.getMessage());
+            AppLog.w(TAG, "默认资源也不可用: " + e.getMessage());
             return false;
         }
     }
@@ -173,7 +173,7 @@ public class SplashScreenErrorHandler {
             return true;
             
         } catch (Exception e) {
-            Log.w(TAG, "基础主题回退失败: " + e.getMessage());
+            AppLog.w(TAG, "基础主题回退失败: " + e.getMessage());
             return false;
         }
     }
@@ -192,7 +192,7 @@ public class SplashScreenErrorHandler {
             return true;
             
         } catch (Exception e) {
-            Log.w(TAG, "传统回退方案失败: " + e.getMessage());
+            AppLog.w(TAG, "传统回退方案失败: " + e.getMessage());
             return false;
         }
     }
@@ -209,7 +209,7 @@ public class SplashScreenErrorHandler {
             return true;
             
         } catch (Exception e) {
-            Log.w(TAG, "基础回退方案失败: " + e.getMessage());
+            AppLog.w(TAG, "基础回退方案失败: " + e.getMessage());
             return false;
         }
     }
@@ -254,7 +254,7 @@ public class SplashScreenErrorHandler {
             diagnostic.logSplashScreenInfo("全面错误恢复完成");
             
         } catch (Exception e) {
-            Log.e(TAG, "全面错误恢复失败: " + e.getMessage(), e);
+            AppLog.e(TAG, "全面错误恢复失败: " + e.getMessage(), e);
         }
     }
     
@@ -274,7 +274,7 @@ public class SplashScreenErrorHandler {
                 Toast.makeText(context.getApplicationContext(), message, Toast.LENGTH_SHORT).show();
             }
         } catch (Exception e) {
-            Log.w(TAG, "显示用户通知失败: " + e.getMessage());
+            AppLog.w(TAG, "显示用户通知失败: " + e.getMessage());
         }
     }
     

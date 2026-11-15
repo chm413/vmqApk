@@ -24,18 +24,24 @@ public class StartReceive extends BroadcastReceiver {
 
     @Override
     public void onReceive(Context context, Intent intent) {
-        Log.d("StartReceive", "start");
-        if (Intent.ACTION_BOOT_COMPLETED.equals(intent.getAction())) {
-            if (!checkBatteryWhiteList(context)) {
+        String action = intent == null ? "" : String.valueOf(intent.getAction());
+        // 开机自启是整条链路的起点：日志里必须能看出"系统到底有没有把我们拉起来"，
+        // 否则用户报"重启后就不工作了"时无从判断。
+        AppLog.i("StartReceive", "收到广播 action=" + action);
+        if (Intent.ACTION_BOOT_COMPLETED.equals(action)) {
+            boolean whitelisted = checkBatteryWhiteList(context);
+            if (!whitelisted) {
                 isBootCompleted = true;
                 Utils.sendBatteryNotify(context);
             }
+            AppLog.event("StartReceive", "开机自启",
+                    "电池优化白名单=" + (whitelisted ? "已加入" : "未加入"));
             NeNotificationService2.enterForeground(context,
                     context.getString(R.string.app_name),
                     context.getString(R.string.app_is_start), "");
         }
-        if (START_SETTING_ACTIVITY_ACTION.equals(intent.getAction())) {
-            Log.d("StartReceive", "start");
+        if (START_SETTING_ACTIVITY_ACTION.equals(action)) {
+            AppLog.i("StartReceive", "通过 SECRET_CODE 打开设置页");
             Intent startActivityIntent = new Intent(context, MainActivity.class);
             startActivityIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             context.startActivity(startActivityIntent);

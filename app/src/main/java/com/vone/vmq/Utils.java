@@ -324,23 +324,6 @@ class Utils {
     }
 
     /**
-     * 记录启动画面阶段的结构化日志。
-     *
-     * <p>早期实现是把日志用自定义广播（{@code ACTION_LOG_UPDATE}）发给 MainActivity 的日志视图。
-     * 但主页自 v3.2.0 起已不再展示日志列表，那条通道等于把启动阶段的日志丢进黑洞。
-     * 现改为统一写入 {@link AppLog}：启动问题也能进环形缓冲、按天文件，可在设置页查看与导出。</p>
-     *
-     * @param tag     来源标签，如 "Splash"
-     * @param message 日志内容
-     */
-    public static void logSplash(String tag, String message) {
-        if (message == null) {
-            return;
-        }
-        AppLog.i(tag == null ? "Splash" : tag, message);
-    }
-
-    /**
      * 重试拦截器 - 适配Android 14+的网络请求重试机制
      */
     private static class RetryInterceptor implements Interceptor {
@@ -364,7 +347,7 @@ class Utils {
                     
                     // 对于服务器错误（5xx）进行重试
                     if (response.code() >= 500 && i < MAX_RETRY_COUNT) {
-                        android.util.Log.w(TAG, "服务器错误 " + response.code() + "，第 " + (i + 1) + " 次重试");
+                        AppLog.w(TAG, "服务器错误 " + response.code() + "，第 " + (i + 1) + " 次重试");
                         response.close();
                         
                         // 指数退避策略
@@ -381,7 +364,7 @@ class Utils {
                     
                 } catch (IOException e) {
                     lastException = e;
-                    android.util.Log.w(TAG, "网络请求失败，第 " + (i + 1) + " 次重试: " + e.getMessage());
+                    AppLog.w(TAG, "网络请求失败，第 " + (i + 1) + " 次重试: " + e.getMessage());
                     
                     if (response != null) {
                         response.close();
@@ -430,21 +413,21 @@ class Utils {
             String safeUrl = redactMonitorUrl(request.url().toString());
             long startTime = System.currentTimeMillis();
             
-            android.util.Log.d(TAG, "发送请求: " + safeUrl);
-            android.util.Log.d(TAG, "请求方法: " + request.method());
+            AppLog.d(TAG, "发送请求: " + safeUrl);
+            AppLog.d(TAG, "请求方法: " + request.method());
             
             Response response;
             try {
                 response = chain.proceed(request);
             } catch (Exception e) {
-                android.util.Log.e(TAG, "请求失败: " + safeUrl + " - " + e.getMessage());
+                AppLog.e(TAG, "请求失败: " + safeUrl + " - " + e.getMessage());
                 throw e;
             }
             
             long endTime = System.currentTimeMillis();
             long duration = endTime - startTime;
             
-            android.util.Log.d(TAG, "收到响应: " + response.code() + " " + response.message() + 
+            AppLog.d(TAG, "收到响应: " + response.code() + " " + response.message() + 
                     " (" + duration + "ms)");
             
             // 集成性能监控 - 记录网络请求性能

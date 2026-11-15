@@ -143,7 +143,7 @@ public class SplashScreenTestActivity extends Activity {
             
         } catch (Exception e) {
             appendResult("测试组件初始化失败: " + e.getMessage());
-            Log.e(TAG, "测试组件初始化失败", e);
+            AppLog.e(TAG, "测试组件初始化失败", e);
         }
     }
     
@@ -224,7 +224,7 @@ public class SplashScreenTestActivity extends Activity {
             } catch (Exception e) {
                 mainHandler.post(() -> {
                     appendResult("诊断过程中发生异常: " + e.getMessage());
-                    Log.e(TAG, "诊断异常", e);
+                    AppLog.e(TAG, "诊断异常", e);
                 });
             }
         }).start();
@@ -274,7 +274,7 @@ public class SplashScreenTestActivity extends Activity {
             } catch (Exception e) {
                 mainHandler.post(() -> {
                     appendResult("性能测试异常: " + e.getMessage());
-                    Log.e(TAG, "性能测试异常", e);
+                    AppLog.e(TAG, "性能测试异常", e);
                 });
             }
         }).start();
@@ -317,7 +317,7 @@ public class SplashScreenTestActivity extends Activity {
             } catch (Exception e) {
                 mainHandler.post(() -> {
                     appendResult("主题测试异常: " + e.getMessage());
-                    Log.e(TAG, "主题测试异常", e);
+                    AppLog.e(TAG, "主题测试异常", e);
                 });
             }
         }).start();
@@ -363,7 +363,7 @@ public class SplashScreenTestActivity extends Activity {
             } catch (Exception e) {
                 mainHandler.post(() -> {
                     appendResult("错误模拟异常: " + e.getMessage());
-                    Log.e(TAG, "错误模拟异常", e);
+                    AppLog.e(TAG, "错误模拟异常", e);
                 });
             }
         }).start();
@@ -430,7 +430,7 @@ public class SplashScreenTestActivity extends Activity {
                 performanceOptimizer.cleanup();
             }
         } catch (Exception e) {
-            Log.w(TAG, "清理资源失败: " + e.getMessage());
+            AppLog.w(TAG, "清理资源失败: " + e.getMessage());
         }
     }
 }

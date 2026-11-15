@@ -35,11 +35,11 @@ public class SplashScreenThemeAdapter {
             // 检测动态颜色支持
             isDynamicColorEnabled = ThemeUtils.isDynamicColorSupported() && ThemeUtils.isDynamicColorEnabled(context);
             
-            Log.d(TAG, "主题设置检测完成 - 深色模式: " + isDarkModeEnabled + ", 动态颜色: " + isDynamicColorEnabled);
+            AppLog.d(TAG, "主题设置检测完成 - 深色模式: " + isDarkModeEnabled + ", 动态颜色: " + isDynamicColorEnabled);
             SplashScreenLogger.logInfo("主题设置 - 深色模式: " + isDarkModeEnabled + ", 动态颜色: " + isDynamicColorEnabled);
             
         } catch (Exception e) {
-            Log.w(TAG, "检测主题设置失败: " + e.getMessage());
+            AppLog.w(TAG, "检测主题设置失败: " + e.getMessage());
             SplashScreenLogger.logError("检测主题设置失败", e);
         }
     }
@@ -50,7 +50,7 @@ public class SplashScreenThemeAdapter {
      */
     public void applySplashScreenThemeAdaptation(Activity activity) {
         try {
-            Log.d(TAG, "开始应用启动画面主题适配");
+            AppLog.d(TAG, "开始应用启动画面主题适配");
             SplashScreenLogger.logStartup("主题适配开始");
             
             // 根据Android版本选择适配策略
@@ -63,11 +63,11 @@ public class SplashScreenThemeAdapter {
             // 应用系统栏适配
             applySystemBarsAdaptation(activity);
             
-            Log.d(TAG, "启动画面主题适配完成");
+            AppLog.d(TAG, "启动画面主题适配完成");
             SplashScreenLogger.logStartup("主题适配完成");
             
         } catch (Exception e) {
-            Log.e(TAG, "应用主题适配失败: " + e.getMessage(), e);
+            AppLog.e(TAG, "应用主题适配失败: " + e.getMessage(), e);
             SplashScreenLogger.logError("主题适配失败", e);
         }
     }
@@ -79,7 +79,7 @@ public class SplashScreenThemeAdapter {
         try {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return;
             
-            Log.d(TAG, "应用Android 12+主题适配");
+            AppLog.d(TAG, "应用Android 12+主题适配");
             
             // 动态颜色适配
             if (isDynamicColorEnabled) {
@@ -95,7 +95,7 @@ public class SplashScreenThemeAdapter {
             applyMaterialYouAdaptation(activity);
             
         } catch (Exception e) {
-            Log.w(TAG, "Android 12+主题适配失败: " + e.getMessage());
+            AppLog.w(TAG, "Android 12+主题适配失败: " + e.getMessage());
             SplashScreenLogger.logError("Android 12+主题适配失败", e);
         }
     }
@@ -105,7 +105,7 @@ public class SplashScreenThemeAdapter {
      */
     private void applyLegacyThemeAdaptation(Activity activity) {
         try {
-            Log.d(TAG, "应用传统主题适配");
+            AppLog.d(TAG, "应用传统主题适配");
             
             // 深色模式适配
             if (isDarkModeEnabled) {
@@ -116,7 +116,7 @@ public class SplashScreenThemeAdapter {
             applyMaterialDesignAdaptation(activity);
             
         } catch (Exception e) {
-            Log.w(TAG, "传统主题适配失败: " + e.getMessage());
+            AppLog.w(TAG, "传统主题适配失败: " + e.getMessage());
             SplashScreenLogger.logError("传统主题适配失败", e);
         }
     }
@@ -128,7 +128,7 @@ public class SplashScreenThemeAdapter {
         try {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return;
             
-            Log.d(TAG, "应用动态颜色适配");
+            AppLog.d(TAG, "应用动态颜色适配");
             
             // 获取系统动态颜色
             int dynamicPrimary = getSystemDynamicColor(activity, android.R.attr.colorPrimary);
@@ -143,7 +143,7 @@ public class SplashScreenThemeAdapter {
             }
             
         } catch (Exception e) {
-            Log.w(TAG, "动态颜色适配失败: " + e.getMessage());
+            AppLog.w(TAG, "动态颜色适配失败: " + e.getMessage());
             SplashScreenLogger.logError("动态颜色适配失败", e);
         }
     }
@@ -153,7 +153,7 @@ public class SplashScreenThemeAdapter {
      */
     private void applyDarkModeAdaptation(Activity activity) {
         try {
-            Log.d(TAG, "应用深色模式适配");
+            AppLog.d(TAG, "应用深色模式适配");
             
             // 获取深色主题颜色
             int darkSurface = getThemeColor(activity, android.R.attr.colorBackground);
@@ -171,7 +171,7 @@ public class SplashScreenThemeAdapter {
             }
             
         } catch (Exception e) {
-            Log.w(TAG, "深色模式适配失败: " + e.getMessage());
+            AppLog.w(TAG, "深色模式适配失败: " + e.getMessage());
             SplashScreenLogger.logError("深色模式适配失败", e);
         }
     }
@@ -181,7 +181,7 @@ public class SplashScreenThemeAdapter {
      */
     private void applyLegacyDarkModeAdaptation(Activity activity) {
         try {
-            Log.d(TAG, "应用传统深色模式适配");
+            AppLog.d(TAG, "应用传统深色模式适配");
             
             // 获取深色主题颜色
             int darkBackground = getThemeColor(activity, android.R.attr.colorBackground);
@@ -191,7 +191,7 @@ public class SplashScreenThemeAdapter {
             }
             
         } catch (Exception e) {
-            Log.w(TAG, "传统深色模式适配失败: " + e.getMessage());
+            AppLog.w(TAG, "传统深色模式适配失败: " + e.getMessage());
         }
     }
     
@@ -202,7 +202,7 @@ public class SplashScreenThemeAdapter {
         try {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return;
             
-            Log.d(TAG, "应用Material You适配");
+            AppLog.d(TAG, "应用Material You适配");
             
             // Material You的圆角和动画适配
             // 这主要通过主题配置实现，这里主要是验证和记录
@@ -212,7 +212,7 @@ public class SplashScreenThemeAdapter {
             SplashScreenLogger.logInfo("Material 3主题验证: " + (isMaterial3Applied ? "成功" : "失败"));
             
         } catch (Exception e) {
-            Log.w(TAG, "Material You适配失败: " + e.getMessage());
+            AppLog.w(TAG, "Material You适配失败: " + e.getMessage());
             SplashScreenLogger.logError("Material You适配失败", e);
         }
     }
@@ -222,14 +222,14 @@ public class SplashScreenThemeAdapter {
      */
     private void applyMaterialDesignAdaptation(Activity activity) {
         try {
-            Log.d(TAG, "应用Material Design适配");
+            AppLog.d(TAG, "应用Material Design适配");
             
             // 验证Material Design主题
             boolean isMaterialApplied = verifyMaterialTheme(activity);
             SplashScreenLogger.logInfo("Material Design主题验证: " + (isMaterialApplied ? "成功" : "失败"));
             
         } catch (Exception e) {
-            Log.w(TAG, "Material Design适配失败: " + e.getMessage());
+            AppLog.w(TAG, "Material Design适配失败: " + e.getMessage());
         }
     }
     
@@ -240,7 +240,7 @@ public class SplashScreenThemeAdapter {
         try {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) return;
             
-            Log.d(TAG, "应用系统栏适配");
+            AppLog.d(TAG, "应用系统栏适配");
             
             // 获取适当的系统栏颜色
             int statusBarColor = getThemeColor(activity, android.R.attr.colorBackground);
@@ -278,7 +278,7 @@ public class SplashScreenThemeAdapter {
                                       ", 导航栏: " + Integer.toHexString(navigationBarColor));
             
         } catch (Exception e) {
-            Log.w(TAG, "系统栏适配失败: " + e.getMessage());
+            AppLog.w(TAG, "系统栏适配失败: " + e.getMessage());
             SplashScreenLogger.logError("系统栏适配失败", e);
         }
     }
@@ -295,7 +295,7 @@ public class SplashScreenThemeAdapter {
                 return typedValue.data;
             }
         } catch (Exception e) {
-            Log.w(TAG, "获取动态颜色失败: " + e.getMessage());
+            AppLog.w(TAG, "获取动态颜色失败: " + e.getMessage());
         }
         return 0;
     }
@@ -310,7 +310,7 @@ public class SplashScreenThemeAdapter {
                 return typedValue.data;
             }
         } catch (Exception e) {
-            Log.w(TAG, "获取主题颜色失败: " + e.getMessage());
+            AppLog.w(TAG, "获取主题颜色失败: " + e.getMessage());
         }
         return 0;
     }
@@ -334,7 +334,7 @@ public class SplashScreenThemeAdapter {
             return hasPrimary && hasBackground;
             
         } catch (Exception e) {
-            Log.w(TAG, "验证Material 3主题失败: " + e.getMessage());
+            AppLog.w(TAG, "验证Material 3主题失败: " + e.getMessage());
             return false;
         }
     }
@@ -358,7 +358,7 @@ public class SplashScreenThemeAdapter {
             return hasPrimary && hasAccent;
             
         } catch (Exception e) {
-            Log.w(TAG, "验证Material Design主题失败: " + e.getMessage());
+            AppLog.w(TAG, "验证Material Design主题失败: " + e.getMessage());
             return false;
         }
     }
@@ -399,7 +399,7 @@ public class SplashScreenThemeAdapter {
             return config;
             
         } catch (Exception e) {
-            Log.e(TAG, "创建适配配置失败: " + e.getMessage(), e);
+            AppLog.e(TAG, "创建适配配置失败: " + e.getMessage(), e);
             SplashScreenLogger.logError("创建适配配置失败", e);
             return new SplashScreenConfig(); // 返回默认配置
         }
@@ -438,7 +438,7 @@ public class SplashScreenThemeAdapter {
      */
     public boolean checkThemeConsistency(Activity activity) {
         try {
-            Log.d(TAG, "检查主题一致性");
+            AppLog.d(TAG, "检查主题一致性");
             
             // 检查启动画面主题与应用主题是否一致
             boolean isConsistent = true;
@@ -464,7 +464,7 @@ public class SplashScreenThemeAdapter {
             return isConsistent;
             
         } catch (Exception e) {
-            Log.w(TAG, "主题一致性检查失败: " + e.getMessage());
+            AppLog.w(TAG, "主题一致性检查失败: " + e.getMessage());
             SplashScreenLogger.logError("主题一致性检查失败", e);
             return false;
         }

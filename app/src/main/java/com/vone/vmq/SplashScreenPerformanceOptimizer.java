@@ -45,7 +45,7 @@ public class SplashScreenPerformanceOptimizer {
      */
     public void startOptimization(Activity activity) {
         try {
-            Log.d(TAG, "开始启动画面性能优化");
+            AppLog.d(TAG, "开始启动画面性能优化");
             splashStartTime = System.currentTimeMillis();
             
             SplashScreenLogger.logStartup("性能优化开始");
@@ -69,10 +69,10 @@ public class SplashScreenPerformanceOptimizer {
             // 优化启动画面显示时长
             optimizeSplashScreenDuration(activity);
             
-            Log.d(TAG, "启动画面性能优化完成");
+            AppLog.d(TAG, "启动画面性能优化完成");
             
         } catch (Exception e) {
-            Log.e(TAG, "启动画面性能优化失败: " + e.getMessage(), e);
+            AppLog.e(TAG, "启动画面性能优化失败: " + e.getMessage(), e);
             SplashScreenLogger.logError("性能优化失败", e);
         }
     }
@@ -83,7 +83,7 @@ public class SplashScreenPerformanceOptimizer {
     private void preloadSplashScreenResources() {
         backgroundExecutor.execute(() -> {
             try {
-                Log.d(TAG, "开始预加载启动画面资源");
+                AppLog.d(TAG, "开始预加载启动画面资源");
                 long startTime = System.currentTimeMillis();
                 
                 // 预加载启动画面图标
@@ -98,10 +98,10 @@ public class SplashScreenPerformanceOptimizer {
                 long endTime = System.currentTimeMillis();
                 SplashScreenLogger.logPerformance("资源预加载", endTime - startTime);
                 
-                Log.d(TAG, "启动画面资源预加载完成，耗时: " + (endTime - startTime) + "ms");
+                AppLog.d(TAG, "启动画面资源预加载完成，耗时: " + (endTime - startTime) + "ms");
                 
             } catch (Exception e) {
-                Log.w(TAG, "资源预加载失败: " + e.getMessage());
+                AppLog.w(TAG, "资源预加载失败: " + e.getMessage());
                 SplashScreenLogger.logError("资源预加载失败", e);
             }
         });
@@ -115,10 +115,10 @@ public class SplashScreenPerformanceOptimizer {
             int resId = context.getResources().getIdentifier(resourceName, "drawable", context.getPackageName());
             if (resId != 0) {
                 context.getResources().getDrawable(resId, context.getTheme());
-                Log.d(TAG, "预加载Drawable资源: " + resourceName);
+                AppLog.d(TAG, "预加载Drawable资源: " + resourceName);
             }
         } catch (Exception e) {
-            Log.w(TAG, "预加载Drawable资源失败: " + resourceName + " - " + e.getMessage());
+            AppLog.w(TAG, "预加载Drawable资源失败: " + resourceName + " - " + e.getMessage());
         }
     }
     
@@ -141,10 +141,10 @@ public class SplashScreenPerformanceOptimizer {
                 }
             }
             
-            Log.d(TAG, "颜色资源预加载完成");
+            AppLog.d(TAG, "颜色资源预加载完成");
             
         } catch (Exception e) {
-            Log.w(TAG, "颜色资源预加载失败: " + e.getMessage());
+            AppLog.w(TAG, "颜色资源预加载失败: " + e.getMessage());
         }
     }
     
@@ -155,10 +155,10 @@ public class SplashScreenPerformanceOptimizer {
         try {
             // 如果应用使用了自定义字体，在这里预加载
             // 目前使用系统字体，暂时跳过
-            Log.d(TAG, "字体资源预加载完成（使用系统字体）");
+            AppLog.d(TAG, "字体资源预加载完成（使用系统字体）");
             
         } catch (Exception e) {
-            Log.w(TAG, "字体资源预加载失败: " + e.getMessage());
+            AppLog.w(TAG, "字体资源预加载失败: " + e.getMessage());
         }
     }
     
@@ -168,7 +168,7 @@ public class SplashScreenPerformanceOptimizer {
     private void initializeNonCriticalComponentsInBackground() {
         backgroundExecutor.execute(() -> {
             try {
-                Log.d(TAG, "开始后台初始化非关键组件");
+                AppLog.d(TAG, "开始后台初始化非关键组件");
                 long startTime = System.currentTimeMillis();
                 
                 // 初始化网络客户端
@@ -186,10 +186,10 @@ public class SplashScreenPerformanceOptimizer {
                 long endTime = System.currentTimeMillis();
                 SplashScreenLogger.logPerformance("后台组件初始化", endTime - startTime);
                 
-                Log.d(TAG, "非关键组件后台初始化完成，耗时: " + (endTime - startTime) + "ms");
+                AppLog.d(TAG, "非关键组件后台初始化完成，耗时: " + (endTime - startTime) + "ms");
                 
             } catch (Exception e) {
-                Log.w(TAG, "后台组件初始化失败: " + e.getMessage());
+                AppLog.w(TAG, "后台组件初始化失败: " + e.getMessage());
                 SplashScreenLogger.logError("后台组件初始化失败", e);
             }
         });
@@ -202,9 +202,9 @@ public class SplashScreenPerformanceOptimizer {
         try {
             // 预热OkHttpClient
             Utils.getOkHttpClient(context);
-            Log.d(TAG, "网络客户端初始化完成");
+            AppLog.d(TAG, "网络客户端初始化完成");
         } catch (Exception e) {
-            Log.w(TAG, "网络客户端初始化失败: " + e.getMessage());
+            AppLog.w(TAG, "网络客户端初始化失败: " + e.getMessage());
         }
     }
     
@@ -215,9 +215,9 @@ public class SplashScreenPerformanceOptimizer {
         try {
             // 如果应用使用数据库，在这里预热连接
             // 目前主要使用SharedPreferences，暂时跳过
-            Log.d(TAG, "数据库连接预热完成（使用SharedPreferences）");
+            AppLog.d(TAG, "数据库连接预热完成（使用SharedPreferences）");
         } catch (Exception e) {
-            Log.w(TAG, "数据库连接预热失败: " + e.getMessage());
+            AppLog.w(TAG, "数据库连接预热失败: " + e.getMessage());
         }
     }
     
@@ -229,9 +229,9 @@ public class SplashScreenPerformanceOptimizer {
             // 如果应用使用分析工具，在这里初始化
             // 目前使用自定义日志系统
             SplashScreenLogger.getInstance(context);
-            Log.d(TAG, "分析工具初始化完成");
+            AppLog.d(TAG, "分析工具初始化完成");
         } catch (Exception e) {
-            Log.w(TAG, "分析工具初始化失败: " + e.getMessage());
+            AppLog.w(TAG, "分析工具初始化失败: " + e.getMessage());
         }
     }
     
@@ -242,9 +242,9 @@ public class SplashScreenPerformanceOptimizer {
         try {
             // 预加载SharedPreferences中的配置数据
             context.getSharedPreferences("vone", Context.MODE_PRIVATE).getAll();
-            Log.d(TAG, "配置数据预加载完成");
+            AppLog.d(TAG, "配置数据预加载完成");
         } catch (Exception e) {
-            Log.w(TAG, "配置数据预加载失败: " + e.getMessage());
+            AppLog.w(TAG, "配置数据预加载失败: " + e.getMessage());
         }
     }
     
@@ -253,7 +253,7 @@ public class SplashScreenPerformanceOptimizer {
      */
     private void optimizeMemoryUsage() {
         try {
-            Log.d(TAG, "开始内存优化");
+            AppLog.d(TAG, "开始内存优化");
             long startTime = System.currentTimeMillis();
             
             // 获取当前内存使用情况
@@ -263,7 +263,7 @@ public class SplashScreenPerformanceOptimizer {
             long usedMemory = totalMemory - freeMemory;
             long maxMemory = runtime.maxMemory();
             
-            Log.d(TAG, "内存状态 - 已使用: " + (usedMemory / 1024 / 1024) + "MB, " +
+            AppLog.d(TAG, "内存状态 - 已使用: " + (usedMemory / 1024 / 1024) + "MB, " +
                       "总分配: " + (totalMemory / 1024 / 1024) + "MB, " +
                       "最大可用: " + (maxMemory / 1024 / 1024) + "MB");
             
@@ -279,7 +279,7 @@ public class SplashScreenPerformanceOptimizer {
             
             // 策略1: 如果内存使用率超过80%，执行垃圾回收
             if (memoryUsageRatio > 0.8) {
-                Log.d(TAG, "内存使用率过高(" + String.format("%.1f%%", memoryUsageRatio * 100) + ")，执行垃圾回收");
+                AppLog.d(TAG, "内存使用率过高(" + String.format("%.1f%%", memoryUsageRatio * 100) + ")，执行垃圾回收");
                 System.gc();
                 needsOptimization = true;
                 
@@ -293,21 +293,21 @@ public class SplashScreenPerformanceOptimizer {
             
             // 策略2: 如果堆内存使用率超过70%，建议清理缓存
             if (maxMemoryUsageRatio > 0.7) {
-                Log.d(TAG, "堆内存使用率过高(" + String.format("%.1f%%", maxMemoryUsageRatio * 100) + ")，清理应用缓存");
+                AppLog.d(TAG, "堆内存使用率过高(" + String.format("%.1f%%", maxMemoryUsageRatio * 100) + ")，清理应用缓存");
                 clearApplicationCaches();
                 needsOptimization = true;
             }
             
             // 策略3: 低内存设备优化
             if (maxMemory < 512 * 1024 * 1024) { // 小于512MB
-                Log.d(TAG, "检测到低内存设备，启用激进优化策略");
+                AppLog.d(TAG, "检测到低内存设备，启用激进优化策略");
                 enableLowMemoryOptimizations();
                 needsOptimization = true;
             }
             
             // 策略4: 预防性优化
             if (!needsOptimization && memoryUsageRatio > 0.6) {
-                Log.d(TAG, "执行预防性内存优化");
+                AppLog.d(TAG, "执行预防性内存优化");
                 performPreventiveOptimization();
             }
             
@@ -324,13 +324,13 @@ public class SplashScreenPerformanceOptimizer {
                                       "优化后: " + (newUsedMemory / 1024 / 1024) + "MB, " +
                                       "释放: " + (memoryFreed / 1024 / 1024) + "MB");
             
-            Log.d(TAG, "内存优化完成，释放了 " + (memoryFreed / 1024 / 1024) + "MB 内存");
+            AppLog.d(TAG, "内存优化完成，释放了 " + (memoryFreed / 1024 / 1024) + "MB 内存");
             
             // 设置内存监控
             scheduleMemoryMonitoring();
             
         } catch (Exception e) {
-            Log.w(TAG, "内存优化失败: " + e.getMessage());
+            AppLog.w(TAG, "内存优化失败: " + e.getMessage());
             SplashScreenLogger.logError("内存优化失败", e);
         }
     }
@@ -349,10 +349,10 @@ public class SplashScreenPerformanceOptimizer {
             // 清理过期的日志文件
             clearExpiredLogFiles();
             
-            Log.d(TAG, "应用缓存清理完成");
+            AppLog.d(TAG, "应用缓存清理完成");
             
         } catch (Exception e) {
-            Log.w(TAG, "清理应用缓存失败: " + e.getMessage());
+            AppLog.w(TAG, "清理应用缓存失败: " + e.getMessage());
         }
     }
     
@@ -364,10 +364,10 @@ public class SplashScreenPerformanceOptimizer {
             java.io.File cacheDir = context.getCacheDir();
             if (cacheDir != null && cacheDir.exists()) {
                 deleteDirectory(cacheDir);
-                Log.d(TAG, "临时文件清理完成");
+                AppLog.d(TAG, "临时文件清理完成");
             }
         } catch (Exception e) {
-            Log.w(TAG, "清理临时文件失败: " + e.getMessage());
+            AppLog.w(TAG, "清理临时文件失败: " + e.getMessage());
         }
     }
     
@@ -386,14 +386,14 @@ public class SplashScreenPerformanceOptimizer {
                     for (java.io.File file : logFiles) {
                         if (file.lastModified() < sevenDaysAgo) {
                             if (file.delete()) {
-                                Log.d(TAG, "删除过期日志文件: " + file.getName());
+                                AppLog.d(TAG, "删除过期日志文件: " + file.getName());
                             }
                         }
                     }
                 }
             }
         } catch (Exception e) {
-            Log.w(TAG, "清理过期日志文件失败: " + e.getMessage());
+            AppLog.w(TAG, "清理过期日志文件失败: " + e.getMessage());
         }
     }
     
@@ -406,11 +406,11 @@ public class SplashScreenPerformanceOptimizer {
             // 减少后台线程数量
             // 降低缓存大小等
             
-            Log.d(TAG, "低内存设备优化已启用");
+            AppLog.d(TAG, "低内存设备优化已启用");
             SplashScreenLogger.logInfo("已启用低内存设备优化策略");
             
         } catch (Exception e) {
-            Log.w(TAG, "启用低内存优化失败: " + e.getMessage());
+            AppLog.w(TAG, "启用低内存优化失败: " + e.getMessage());
         }
     }
     
@@ -422,10 +422,10 @@ public class SplashScreenPerformanceOptimizer {
             // 轻量级的预防性优化
             System.runFinalization();
             
-            Log.d(TAG, "预防性内存优化完成");
+            AppLog.d(TAG, "预防性内存优化完成");
             
         } catch (Exception e) {
-            Log.w(TAG, "预防性优化失败: " + e.getMessage());
+            AppLog.w(TAG, "预防性优化失败: " + e.getMessage());
         }
     }
     
@@ -444,7 +444,7 @@ public class SplashScreenPerformanceOptimizer {
                 double memoryUsageRatio = (double) usedMemory / totalMemory;
                 
                 if (memoryUsageRatio > 0.85) {
-                    Log.w(TAG, "内存使用率过高: " + String.format("%.1f%%", memoryUsageRatio * 100));
+                    AppLog.w(TAG, "内存使用率过高: " + String.format("%.1f%%", memoryUsageRatio * 100));
                     SplashScreenLogger.logInfo("内存监控警告 - 使用率: " + String.format("%.1f%%", memoryUsageRatio * 100));
                     
                     // 执行紧急内存清理
@@ -452,7 +452,7 @@ public class SplashScreenPerformanceOptimizer {
                 }
                 
             } catch (Exception e) {
-                Log.w(TAG, "内存监控失败: " + e.getMessage());
+                AppLog.w(TAG, "内存监控失败: " + e.getMessage());
             }
         }, 30000);
     }
@@ -480,7 +480,7 @@ public class SplashScreenPerformanceOptimizer {
      */
     private void optimizeSplashScreenDuration(Activity activity) {
         try {
-            Log.d(TAG, "优化启动画面显示时长");
+            AppLog.d(TAG, "优化启动画面显示时长");
             
             // 根据设备性能和网络状态调整显示时长
             int optimizedDuration = calculateOptimalSplashDuration();
@@ -488,13 +488,13 @@ public class SplashScreenPerformanceOptimizer {
             // 如果是传统启动画面，应用优化的时长
             if (LegacySplashScreenHelper.needsLegacyHandling()) {
                 // 这里可以与LegacySplashScreenHelper配合使用优化的时长
-                Log.d(TAG, "为传统启动画面应用优化时长: " + optimizedDuration + "ms");
+                AppLog.d(TAG, "为传统启动画面应用优化时长: " + optimizedDuration + "ms");
             }
             
             SplashScreenLogger.logPerformance("优化启动画面时长", optimizedDuration);
             
         } catch (Exception e) {
-            Log.w(TAG, "启动画面时长优化失败: " + e.getMessage());
+            AppLog.w(TAG, "启动画面时长优化失败: " + e.getMessage());
         }
     }
     
@@ -525,7 +525,7 @@ public class SplashScreenPerformanceOptimizer {
             return Math.max(400, Math.min(baseDuration, 1500));
             
         } catch (Exception e) {
-            Log.w(TAG, "计算最优时长失败: " + e.getMessage());
+            AppLog.w(TAG, "计算最优时长失败: " + e.getMessage());
             return 800; // 返回默认值
         }
     }
@@ -548,7 +548,7 @@ public class SplashScreenPerformanceOptimizer {
         }
         SplashScreenLogger.logPerformance("初始化时间", initializationTime);
         
-        Log.d(TAG, "启动性能统计 - 总时间: " + totalStartupTime + "ms, 初始化: " + initializationTime + "ms");
+        AppLog.d(TAG, "启动性能统计 - 总时间: " + totalStartupTime + "ms, 初始化: " + initializationTime + "ms");
         
         // 分析性能并给出建议
         analyzePerformanceAndProvideRecommendations(totalStartupTime, initializationTime);
@@ -563,7 +563,7 @@ public class SplashScreenPerformanceOptimizer {
         if (splashStartTime > 0) {
             long splashDuration = splashEndTime - splashStartTime;
             SplashScreenLogger.logPerformance("启动画面实际显示时间", splashDuration);
-            Log.d(TAG, "启动画面显示时间: " + splashDuration + "ms");
+            AppLog.d(TAG, "启动画面显示时间: " + splashDuration + "ms");
         }
     }
     
@@ -606,10 +606,10 @@ public class SplashScreenPerformanceOptimizer {
             }
             
             SplashScreenLogger.logInfo(analysis.toString());
-            Log.d(TAG, analysis.toString());
+            AppLog.d(TAG, analysis.toString());
             
         } catch (Exception e) {
-            Log.w(TAG, "性能分析失败: " + e.getMessage());
+            AppLog.w(TAG, "性能分析失败: " + e.getMessage());
         }
     }
     
@@ -656,7 +656,7 @@ public class SplashScreenPerformanceOptimizer {
         this.backgroundInitEnabled = backgroundInit;
         this.memoryOptimizationEnabled = memoryOptimization;
         
-        Log.d(TAG, "优化选项已更新 - 资源预加载: " + preloadResources + 
+        AppLog.d(TAG, "优化选项已更新 - 资源预加载: " + preloadResources + 
                   ", 后台初始化: " + backgroundInit + 
                   ", 内存优化: " + memoryOptimization);
     }
@@ -667,9 +667,9 @@ public class SplashScreenPerformanceOptimizer {
     public void cleanup() {
         try {
             backgroundExecutor.shutdown();
-            Log.d(TAG, "性能优化器资源清理完成");
+            AppLog.d(TAG, "性能优化器资源清理完成");
         } catch (Exception e) {
-            Log.w(TAG, "性能优化器资源清理失败: " + e.getMessage());
+            AppLog.w(TAG, "性能优化器资源清理失败: " + e.getMessage());
         }
     }
 }

@@ -39,7 +39,7 @@ public class LegacySplashScreenHelper {
         }
         
         try {
-            Log.d(TAG, "设置传统启动画面");
+            AppLog.d(TAG, "设置传统启动画面");
             
             // 优化窗口属性
             optimizeWindowAttributes();
@@ -47,10 +47,10 @@ public class LegacySplashScreenHelper {
             // 设置状态栏和导航栏
             setupSystemBars();
             
-            Log.d(TAG, "传统启动画面设置完成");
+            AppLog.d(TAG, "传统启动画面设置完成");
             
         } catch (Exception e) {
-            Log.e(TAG, "设置传统启动画面失败: " + e.getMessage(), e);
+            AppLog.e(TAG, "设置传统启动画面失败: " + e.getMessage(), e);
         }
     }
     
@@ -77,14 +77,14 @@ public class LegacySplashScreenHelper {
         }
         
         if (isTransitionInProgress) {
-            Log.w(TAG, "过渡已在进行中，忽略重复调用");
+            AppLog.w(TAG, "过渡已在进行中，忽略重复调用");
             return;
         }
         
         isTransitionInProgress = true;
         
         try {
-            Log.d(TAG, "开始启动画面过渡，持续时间: " + duration + "ms");
+            AppLog.d(TAG, "开始启动画面过渡，持续时间: " + duration + "ms");
             
             // 延迟执行过渡，确保启动画面显示足够时间
             mainHandler.postDelayed(() -> {
@@ -92,7 +92,7 @@ public class LegacySplashScreenHelper {
                     // 执行淡出动画
                     performFadeOutTransition(callback);
                 } catch (Exception e) {
-                    Log.e(TAG, "执行过渡动画失败: " + e.getMessage(), e);
+                    AppLog.e(TAG, "执行过渡动画失败: " + e.getMessage(), e);
                     isTransitionInProgress = false;
                     if (callback != null) {
                         callback.run();
@@ -101,7 +101,7 @@ public class LegacySplashScreenHelper {
             }, Math.max(duration, 500)); // 最少显示500ms
             
         } catch (Exception e) {
-            Log.e(TAG, "启动过渡失败: " + e.getMessage(), e);
+            AppLog.e(TAG, "启动过渡失败: " + e.getMessage(), e);
             isTransitionInProgress = false;
             if (callback != null) {
                 callback.run();
@@ -126,10 +126,10 @@ public class LegacySplashScreenHelper {
                 window.addFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_NAVIGATION);
             }
             
-            Log.d(TAG, "窗口属性优化完成");
+            AppLog.d(TAG, "窗口属性优化完成");
             
         } catch (Exception e) {
-            Log.w(TAG, "窗口属性优化失败: " + e.getMessage());
+            AppLog.w(TAG, "窗口属性优化失败: " + e.getMessage());
         }
     }
     
@@ -174,10 +174,10 @@ public class LegacySplashScreenHelper {
                 }
             }
             
-            Log.d(TAG, "系统栏设置完成");
+            AppLog.d(TAG, "系统栏设置完成");
             
         } catch (Exception e) {
-            Log.w(TAG, "系统栏设置失败: " + e.getMessage());
+            AppLog.w(TAG, "系统栏设置失败: " + e.getMessage());
         }
     }
     
@@ -188,7 +188,7 @@ public class LegacySplashScreenHelper {
         try {
             View contentView = activity.findViewById(android.R.id.content);
             if (contentView == null) {
-                Log.w(TAG, "无法获取内容视图，跳过动画");
+                AppLog.w(TAG, "无法获取内容视图，跳过动画");
                 isTransitionInProgress = false;
                 if (callback != null) {
                     callback.run();
@@ -205,7 +205,7 @@ public class LegacySplashScreenHelper {
                         contentView.setAlpha(1f);
                         isTransitionInProgress = false;
                         
-                        Log.d(TAG, "启动画面过渡完成");
+                        AppLog.d(TAG, "启动画面过渡完成");
                         
                         if (callback != null) {
                             callback.run();
@@ -214,7 +214,7 @@ public class LegacySplashScreenHelper {
                     .start();
                     
         } catch (Exception e) {
-            Log.e(TAG, "淡出动画执行失败: " + e.getMessage(), e);
+            AppLog.e(TAG, "淡出动画执行失败: " + e.getMessage(), e);
             isTransitionInProgress = false;
             if (callback != null) {
                 callback.run();
@@ -246,7 +246,7 @@ public class LegacySplashScreenHelper {
                 return 1200;
             }
         } catch (Exception e) {
-            Log.w(TAG, "获取推荐时长失败: " + e.getMessage());
+            AppLog.w(TAG, "获取推荐时长失败: " + e.getMessage());
             return DEFAULT_SPLASH_DURATION;
         }
     }
@@ -261,10 +261,10 @@ public class LegacySplashScreenHelper {
             mainHandler.removeCallbacksAndMessages(null);
             isTransitionInProgress = false;
             
-            Log.d(TAG, "传统启动画面辅助类资源清理完成");
+            AppLog.d(TAG, "传统启动画面辅助类资源清理完成");
             
         } catch (Exception e) {
-            Log.w(TAG, "资源清理失败: " + e.getMessage());
+            AppLog.w(TAG, "资源清理失败: " + e.getMessage());
         }
     }
     

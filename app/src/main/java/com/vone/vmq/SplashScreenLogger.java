@@ -68,7 +68,7 @@ public class SplashScreenLogger {
             String message = String.format("[STARTUP] %s - %s", phase, 
                 details != null ? details : "时间: " + currentTime);
             
-            Log.d(TAG, message);
+            AppLog.d(TAG, message);
             
             if (instance != null) {
                 instance.writeToLogFile(message, LogType.STARTUP);
@@ -85,7 +85,7 @@ public class SplashScreenLogger {
             }
             
         } catch (Exception e) {
-            Log.w(TAG, "记录启动日志失败: " + e.getMessage());
+            AppLog.w(TAG, "记录启动日志失败: " + e.getMessage());
         }
     }
     
@@ -99,7 +99,7 @@ public class SplashScreenLogger {
                 message += " - " + throwable.getMessage();
             }
             
-            Log.e(TAG, message, throwable);
+            AppLog.e(TAG, message, throwable);
             
             if (instance != null) {
                 instance.writeToLogFile(message, LogType.ERROR);
@@ -111,7 +111,7 @@ public class SplashScreenLogger {
             }
             
         } catch (Exception e) {
-            Log.w(TAG, "记录错误日志失败: " + e.getMessage());
+            AppLog.w(TAG, "记录错误日志失败: " + e.getMessage());
         }
     }
     
@@ -121,7 +121,7 @@ public class SplashScreenLogger {
     public static void logConfiguration(SplashScreenConfig config) {
         try {
             String message = String.format("[CONFIG] %s", config != null ? config.toString() : "null");
-            Log.i(TAG, message);
+            AppLog.i(TAG, message);
             
             if (instance != null) {
                 instance.writeToLogFile(message, LogType.CONFIGURATION);
@@ -132,7 +132,7 @@ public class SplashScreenLogger {
             }
             
         } catch (Exception e) {
-            Log.w(TAG, "记录配置日志失败: " + e.getMessage());
+            AppLog.w(TAG, "记录配置日志失败: " + e.getMessage());
         }
     }
     
@@ -142,7 +142,7 @@ public class SplashScreenLogger {
     public static void logDiagnosticResult(DiagnosticResult result) {
         try {
             String message = String.format("[DIAGNOSTIC] %s", result != null ? result.toString() : "null");
-            Log.i(TAG, message);
+            AppLog.i(TAG, message);
             
             if (instance != null) {
                 instance.writeToLogFile(message, LogType.DIAGNOSTIC);
@@ -158,7 +158,7 @@ public class SplashScreenLogger {
             }
             
         } catch (Exception e) {
-            Log.w(TAG, "记录诊断日志失败: " + e.getMessage());
+            AppLog.w(TAG, "记录诊断日志失败: " + e.getMessage());
         }
     }
     
@@ -168,14 +168,14 @@ public class SplashScreenLogger {
     public static void logPerformance(String metric, long value) {
         try {
             String message = String.format("[PERFORMANCE] %s: %d ms", metric, value);
-            Log.d(TAG, message);
+            AppLog.d(TAG, message);
             
             if (instance != null) {
                 instance.writeToPerformanceLog(message);
             }
             
         } catch (Exception e) {
-            Log.w(TAG, "记录性能日志失败: " + e.getMessage());
+            AppLog.w(TAG, "记录性能日志失败: " + e.getMessage());
         }
     }
     
@@ -185,7 +185,7 @@ public class SplashScreenLogger {
     public static void logDeviceInfo(SplashScreenSupport support) {
         try {
             String message = String.format("[DEVICE] %s", support != null ? support.toString() : "null");
-            Log.i(TAG, message);
+            AppLog.i(TAG, message);
             
             if (instance != null) {
                 instance.writeToLogFile(message, LogType.DEVICE_INFO);
@@ -196,7 +196,7 @@ public class SplashScreenLogger {
             }
             
         } catch (Exception e) {
-            Log.w(TAG, "记录设备信息失败: " + e.getMessage());
+            AppLog.w(TAG, "记录设备信息失败: " + e.getMessage());
         }
     }
     
@@ -206,14 +206,14 @@ public class SplashScreenLogger {
     public static void logInfo(String message) {
         try {
             String logMessage = String.format("[INFO] %s", message);
-            Log.i(TAG, logMessage);
+            AppLog.i(TAG, logMessage);
             
             if (instance != null) {
                 instance.writeToLogFile(logMessage, LogType.INFO);
             }
             
         } catch (Exception e) {
-            Log.w(TAG, "记录信息日志失败: " + e.getMessage());
+            AppLog.w(TAG, "记录信息日志失败: " + e.getMessage());
         }
     }
     
@@ -239,12 +239,12 @@ public class SplashScreenLogger {
                         writer.write(logEntry);
                         writer.flush();
                     }
-                    
-                    // 同时写入应用统一日志（AppLog）
-                    Utils.logSplash("Splash", "[启动画面] " + message);
-                    
+
+                    // 不再在这里写 AppLog：各 logXxx 方法已经写过一次，
+                    // 这里再写会造成同一条启动日志在设置页出现两遍。
+
                 } catch (IOException e) {
-                    Log.w(TAG, "写入日志文件失败: " + e.getMessage());
+                    AppLog.w(TAG, "写入日志文件失败: " + e.getMessage());
                 }
             }
         });
@@ -269,7 +269,7 @@ public class SplashScreenLogger {
                     }
                     
                 } catch (IOException e) {
-                    Log.w(TAG, "写入性能日志失败: " + e.getMessage());
+                    AppLog.w(TAG, "写入性能日志失败: " + e.getMessage());
                 }
             }
         });
@@ -305,14 +305,14 @@ public class SplashScreenLogger {
             }
             
             if (!logDir.exists() && !logDir.mkdirs()) {
-                Log.w(TAG, "无法创建日志目录");
+                AppLog.w(TAG, "无法创建日志目录");
                 return null;
             }
             
             return new File(logDir, fileName);
             
         } catch (Exception e) {
-            Log.w(TAG, "获取日志文件失败: " + e.getMessage());
+            AppLog.w(TAG, "获取日志文件失败: " + e.getMessage());
             return null;
         }
     }
@@ -323,10 +323,10 @@ public class SplashScreenLogger {
     private void cleanupLogFile(File logFile) {
         try {
             if (logFile.exists() && logFile.delete()) {
-                Log.d(TAG, "已清理日志文件: " + logFile.getName());
+                AppLog.d(TAG, "已清理日志文件: " + logFile.getName());
             }
         } catch (Exception e) {
-            Log.w(TAG, "清理日志文件失败: " + e.getMessage());
+            AppLog.w(TAG, "清理日志文件失败: " + e.getMessage());
         }
     }
     
@@ -365,7 +365,7 @@ public class SplashScreenLogger {
             return content.toString();
             
         } catch (Exception e) {
-            Log.w(TAG, "读取日志文件失败: " + e.getMessage());
+            AppLog.w(TAG, "读取日志文件失败: " + e.getMessage());
             return "读取日志文件失败: " + e.getMessage();
         }
     }
@@ -387,10 +387,10 @@ public class SplashScreenLogger {
                         cleanupLogFile(performanceLogFile);
                     }
                     
-                    Log.d(TAG, "已清理所有启动画面日志");
+                    AppLog.d(TAG, "已清理所有启动画面日志");
                     
                 } catch (Exception e) {
-                    Log.w(TAG, "清理日志失败: " + e.getMessage());
+                    AppLog.w(TAG, "清理日志失败: " + e.getMessage());
                 }
             }
         });
@@ -401,7 +401,7 @@ public class SplashScreenLogger {
      */
     public void setPerformanceMonitoringEnabled(boolean enabled) {
         this.performanceMonitoringEnabled = enabled;
-        Log.d(TAG, "性能监控已" + (enabled ? "启用" : "禁用"));
+        AppLog.d(TAG, "性能监控已" + (enabled ? "启用" : "禁用"));
     }
     
     /**
@@ -444,9 +444,9 @@ public class SplashScreenLogger {
     public void shutdown() {
         try {
             logExecutor.shutdown();
-            Log.d(TAG, "启动画面日志系统已关闭");
+            AppLog.d(TAG, "启动画面日志系统已关闭");
         } catch (Exception e) {
-            Log.w(TAG, "关闭日志系统失败: " + e.getMessage());
+            AppLog.w(TAG, "关闭日志系统失败: " + e.getMessage());
         }
     }
     

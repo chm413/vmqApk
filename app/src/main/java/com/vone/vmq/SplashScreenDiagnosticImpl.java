@@ -91,18 +91,8 @@ public class SplashScreenDiagnosticImpl implements SplashScreenDiagnostic {
     
     @Override
     public void logSplashScreenInfo(String message) {
-        Log.d(TAG, message);
-        
-        // 使用专门的启动画面日志系统
+        // 一条日志只落一次：SplashScreenLogger.logInfo 内部已经写 AppLog
         SplashScreenLogger.logInfo(message);
-        
-        // 同时写入应用统一日志（AppLog）
-        try {
-            Utils.logSplash("Splash", "[启动画面诊断] " + message);
-        } catch (Exception e) {
-            // 忽略日志写入失败，避免影响诊断流程
-            Log.w(TAG, "写入应用日志失败: " + e.getMessage());
-        }
     }
     
     /**

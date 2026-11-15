@@ -55,13 +55,13 @@ public class CompatibilityChecker {
             result.appVersionCode = packageInfo.versionCode;
             result.appVersionName = packageInfo.versionName;
         } catch (PackageManager.NameNotFoundException e) {
-            Log.e(TAG, "无法获取应用版本信息", e);
+            AppLog.e(TAG, "无法获取应用版本信息", e);
         }
         
         // 生成兼容性报告
         result.compatibilityReport = generateCompatibilityReport(result);
         
-        Log.i(TAG, "兼容性检查完成: " + result.compatibilityReport);
+        AppLog.i(TAG, "兼容性检查完成: " + result.compatibilityReport);
         
         return result;
     }

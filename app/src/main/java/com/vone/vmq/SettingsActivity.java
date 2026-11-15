@@ -406,7 +406,7 @@ public class SettingsActivity extends AppCompatActivity {
             intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
             qrLauncher.launch(intent);
         } catch (Exception e) {
-            Log.e(TAG, "启动扫码界面失败: " + e.getMessage(), e);
+            AppLog.e(TAG, "启动扫码界面失败: " + e.getMessage(), e);
             Toast.makeText(this, "启动扫码界面失败，请重试", Toast.LENGTH_SHORT).show();
         }
     }

@@ -230,27 +230,19 @@ public final class AppLog {
         log(Level.INFO, module, action + (text.isEmpty() ? "" : " | " + text));
     }
 
+    /**
+     * 日志落地。
+     *
+     * <p><b>logcat 始终完整输出，级别只过滤"应用内日志"（内存 / 文件 / 广播）。</b>
+     * 原因是大多数人调这种机型问题时还是接 adb 看 logcat，
+     * 如果用户把应用内级别设成 INFO 就把 DEBUG 从 logcat 也抹掉，
+     * 等于把现场唯一的原始通道也关了。</p>
+     */
     private static void log(Level level, String tag, String msg) {
-        if (level.rank < minLevel.rank) {
-            return;
-        }
         String safeTag = tag == null ? "App" : tag;
         String safeMsg = msg == null ? "" : msg;
-        long now = System.currentTimeMillis();
-        String line;
-        synchronized (TIME_FMT) {
-            line = TIME_FMT.format(new Date(now)) + " " + level.shortName + "/" + safeTag
-                    + ": " + safeMsg;
-        }
-        Entry entry = new Entry(now, level, safeTag, safeMsg, line);
 
-        synchronized (LOCK) {
-            MEMORY.addLast(entry);
-            while (MEMORY.size() > MAX_MEMORY) {
-                MEMORY.removeFirst();
-            }
-        }
-
+        // 1) logcat：无视级别，永远写
         switch (level) {
             case ERROR:
                 Log.e(safeTag, safeMsg);
@@ -265,6 +257,25 @@ public final class AppLog {
             default:
                 Log.i(safeTag, safeMsg);
                 break;
+        }
+
+        // 2) 应用内：受级别控制
+        if (level.rank < minLevel.rank) {
+            return;
+        }
+        long now = System.currentTimeMillis();
+        String line;
+        synchronized (TIME_FMT) {
+            line = TIME_FMT.format(new Date(now)) + " " + level.shortName + "/" + safeTag
+                    + ": " + safeMsg;
+        }
+        Entry entry = new Entry(now, level, safeTag, safeMsg, line);
+
+        synchronized (LOCK) {
+            MEMORY.addLast(entry);
+            while (MEMORY.size() > MAX_MEMORY) {
+                MEMORY.removeFirst();
+            }
         }
 
         broadcast(entry);

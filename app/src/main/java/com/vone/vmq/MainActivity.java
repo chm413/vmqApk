@@ -337,7 +337,7 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
                 performanceOptimizer.cleanup();
             }
         } catch (Exception e) {
-            Log.w(TAG, "清理启动画面资源失败: " + e.getMessage());
+            AppLog.w(TAG, "清理启动画面资源失败: " + e.getMessage());
         }
     }
 
@@ -426,7 +426,7 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
             public void onResponse(Call call, Response response) throws IOException {
                 try {
                     MonitorResponse result = MonitorResponse.from(response);
-                    Log.d(TAG, "扫码配置心跳结果: " + result.summary());
+                    AppLog.d(TAG, "扫码配置心跳结果: " + result.summary());
                     
                     handler.post(() -> {
                         if (!result.isSuccessful()) {
@@ -459,7 +459,7 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
                         appendLog("扫码配置成功: " + tmp[0]);
                     });
                 } catch (Exception e) {
-                    Log.e(TAG, "扫码配置心跳异常: " + e.getMessage(), e);
+                    AppLog.e(TAG, "扫码配置心跳异常: " + e.getMessage(), e);
                     handler.post(() -> {
                         Toast.makeText(MainActivity.this, "配置处理异常", Toast.LENGTH_SHORT).show();
                         appendLog("扫码配置处理异常: " + e.getMessage());
@@ -587,7 +587,7 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
             intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
             qrCodeLauncher.launch(intent);
         } catch (Exception e) {
-            Log.e(TAG, "启动扫码界面失败: " + e.getMessage(), e);
+            AppLog.e(TAG, "启动扫码界面失败: " + e.getMessage(), e);
             Toast.makeText(this, "启动扫码界面失败，请重试", Toast.LENGTH_SHORT).show();
         }
     }
@@ -676,10 +676,10 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
                     public void onResponse(Call call, Response response) throws IOException {
                         try {
                             String responseBody = response.body().string();
-                            Log.d(TAG, "配置测试心跳返回: " + Desensitizer.any(responseBody));
-                            Log.d(TAG, "配置测试HTTP状态码: " + response.code());
+                            AppLog.d(TAG, "配置测试心跳返回: " + Desensitizer.any(responseBody));
+                            AppLog.d(TAG, "配置测试HTTP状态码: " + response.code());
                         } catch (Exception e) {
-                            Log.e(TAG, "配置测试心跳异常: " + e.getMessage(), e);
+                            AppLog.e(TAG, "配置测试心跳异常: " + e.getMessage(), e);
                             e.printStackTrace();
                         }
                         isOk = true;
@@ -754,11 +754,11 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
                             try {
                                 // 响应体可能回带签名、回调地址等标识信息，落日志前先脱敏
                                 appendLog("心跳返回: HTTP " + httpCode + " " + Desensitizer.any(responseBody));
-                                Log.d(TAG, "心跳返回原始数据: " + Desensitizer.any(responseBody));
-                                Log.d(TAG, "HTTP状态码: " + httpCode);
+                                AppLog.d(TAG, "心跳返回原始数据: " + Desensitizer.any(responseBody));
+                                AppLog.d(TAG, "HTTP状态码: " + httpCode);
 
                                 JSONObject jsonObject = new JSONObject(responseBody);
-                                Log.d(TAG, "JSON解析成功");
+                                AppLog.d(TAG, "JSON解析成功");
 
                                 // 兼容新旧两种返回格式
                                 // 新格式：{"code": 200, "msg": "消息", "data": null}
@@ -766,13 +766,13 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
                                 int code = jsonObject.getInt("code");
                                 String msg = jsonObject.getString("msg");
 
-                                Log.d(TAG, "解析到的code: " + code + ", msg: " + msg);
+                                AppLog.d(TAG, "解析到的code: " + code + ", msg: " + msg);
 
                                 if (code == 200 || code == 0 || code == 1) {
                                     // 成功状态 (兼容code=1的情况)
                                     Toast.makeText(MainActivity.this, "心跳返回：" + msg, Toast.LENGTH_LONG).show();
                                     appendLog("心跳成功: " + Desensitizer.any(msg));
-                                    Log.d(TAG, "心跳成功");
+                                    AppLog.d(TAG, "心跳成功");
                                     getSharedPreferences("vone", MODE_PRIVATE).edit()
                                             .putLong("last_heart_ok_at", System.currentTimeMillis())
                                             .putInt("last_heart_fail_count", 0)
@@ -782,10 +782,10 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
                                     // 错误状态
                                     Toast.makeText(MainActivity.this, "心跳错误：" + msg, Toast.LENGTH_LONG).show();
                                     appendLog("心跳失败: " + Desensitizer.any(msg));
-                                    Log.d(TAG, "心跳失败，code: " + code);
+                                    AppLog.d(TAG, "心跳失败，code: " + code);
                                 }
                             } catch (Exception e) {
-                                Log.e(TAG, "心跳数据解析异常: " + e.getMessage(), e);
+                                AppLog.e(TAG, "心跳数据解析异常: " + e.getMessage(), e);
                                 e.printStackTrace();
                                 Toast.makeText(MainActivity.this, "心跳返回数据解析失败: " + e.getMessage(), Toast.LENGTH_LONG).show();
                                 appendLog("心跳返回数据解析异常: " + e.getMessage());
@@ -793,7 +793,7 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
                         }
                     });
                 } catch (Exception e) {
-                    Log.e(TAG, "网络响应读取异常: " + e.getMessage(), e);
+                    AppLog.e(TAG, "网络响应读取异常: " + e.getMessage(), e);
                     handler.post(new Runnable() {
                         @Override
                         public void run() {
@@ -1140,10 +1140,10 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
                 public void onResponse(Call call, Response response) throws IOException {
                     try {
                         String responseBody = response.body().string();
-                        Log.d(TAG, "扫码配置心跳返回: " + Desensitizer.any(responseBody));
-                        Log.d(TAG, "扫码配置HTTP状态码: " + response.code());
+                        AppLog.d(TAG, "扫码配置心跳返回: " + Desensitizer.any(responseBody));
+                        AppLog.d(TAG, "扫码配置HTTP状态码: " + response.code());
                     } catch (Exception e) {
-                        Log.e(TAG, "扫码配置心跳异常: " + e.getMessage(), e);
+                        AppLog.e(TAG, "扫码配置心跳异常: " + e.getMessage(), e);
                         e.printStackTrace();
                     }
                     isOk = true;
@@ -1210,13 +1210,13 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
         ThemeUtils.applyThemeToActivity(this);
         
         // 可以在这里添加其他主题变化时的处理逻辑
-        Log.d(TAG, "主题已变化，重新应用主题设置");
+        AppLog.d(TAG, "主题已变化，重新应用主题设置");
     }
 
     @Override
     public void onDynamicColorChanged(boolean enabled) {
         // 当动态颜色设置发生变化时的处理
-        Log.d(TAG, "动态颜色设置已变化: " + enabled);
+        AppLog.d(TAG, "动态颜色设置已变化: " + enabled);
         
         // 重新应用主题
         ThemeUtils.applyThemeToActivity(this);
@@ -1239,7 +1239,7 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
      */
     private void initializeSplashScreenDiagnostics() {
         try {
-            Log.d(TAG, "初始化启动画面诊断功能");
+            AppLog.d(TAG, "初始化启动画面诊断功能");
             
             // 记录启动画面开始
             SplashScreenLogger.logStartup("启动画面诊断初始化开始");
@@ -1279,10 +1279,10 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
             }
             
             SplashScreenLogger.logStartup("启动画面诊断功能初始化完成");
-            Log.d(TAG, "启动画面诊断功能初始化完成");
+            AppLog.d(TAG, "启动画面诊断功能初始化完成");
             
         } catch (Exception e) {
-            Log.e(TAG, "启动画面诊断初始化失败: " + e.getMessage(), e);
+            AppLog.e(TAG, "启动画面诊断初始化失败: " + e.getMessage(), e);
             SplashScreenLogger.logError("启动画面诊断初始化失败", e);
             
             // 即使诊断失败，也不应该影响应用正常启动
@@ -1302,7 +1302,7 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
             // 验证资源完整性
             boolean resourcesValid = splashScreenDiagnostic.validateSplashScreenResources();
             if (!resourcesValid) {
-                Log.w(TAG, "启动画面资源验证失败");
+                AppLog.w(TAG, "启动画面资源验证失败");
                 appendLog("启动画面资源验证失败，可能影响启动体验");
                 
                 if (splashScreenErrorHandler != null) {
@@ -1314,10 +1314,10 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
             
             // 获取支持信息
             SplashScreenSupport support = splashScreenDiagnostic.getSplashScreenSupport();
-            Log.d(TAG, "启动画面支持: " + support.getSupportedType().getDescription());
+            AppLog.d(TAG, "启动画面支持: " + support.getSupportedType().getDescription());
             
         } catch (Exception e) {
-            Log.w(TAG, "快速诊断检查失败: " + e.getMessage());
+            AppLog.w(TAG, "快速诊断检查失败: " + e.getMessage());
         }
     }
     
@@ -1330,7 +1330,7 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
                 // 对于传统启动画面，执行过渡动画
                 int duration = LegacySplashScreenHelper.getRecommendedSplashDuration(this);
                 legacySplashScreenHelper.performSplashTransition(duration, () -> {
-                    Log.d(TAG, "传统启动画面过渡完成");
+                    AppLog.d(TAG, "传统启动画面过渡完成");
                 });
             }
             
@@ -1339,12 +1339,12 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
                 try {
                     performCompleteDiagnosticCheck();
                 } catch (Exception e) {
-                    Log.w(TAG, "后台诊断检查失败: " + e.getMessage());
+                    AppLog.w(TAG, "后台诊断检查失败: " + e.getMessage());
                 }
             }).start();
             
         } catch (Exception e) {
-            Log.w(TAG, "启动画面诊断后处理失败: " + e.getMessage());
+            AppLog.w(TAG, "启动画面诊断后处理失败: " + e.getMessage());
         }
     }
     
@@ -1355,13 +1355,13 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
         try {
             if (splashScreenDiagnostic == null) return;
             
-            Log.d(TAG, "开始完整启动画面诊断检查");
+            AppLog.d(TAG, "开始完整启动画面诊断检查");
             
             // 执行完整配置检查
             DiagnosticResult result = splashScreenDiagnostic.checkSplashScreenConfiguration();
             
             // 记录诊断结果
-            Log.d(TAG, "诊断结果: " + result.toString());
+            AppLog.d(TAG, "诊断结果: " + result.toString());
             
             if (result.hasIssues()) {
                 // 在主线程中更新UI
@@ -1386,10 +1386,10 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
                 });
             }
             
-            Log.d(TAG, "完整启动画面诊断检查完成");
+            AppLog.d(TAG, "完整启动画面诊断检查完成");
             
         } catch (Exception e) {
-            Log.e(TAG, "完整诊断检查异常: " + e.getMessage(), e);
+            AppLog.e(TAG, "完整诊断检查异常: " + e.getMessage(), e);
             handler.post(() -> {
                 appendLog("启动画面诊断检查异常: " + e.getMessage());
             });
@@ -1403,7 +1403,7 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
         try {
             if (splashScreenErrorHandler == null) return;
             
-            Log.d(TAG, "尝试自动修复启动画面问题");
+            AppLog.d(TAG, "尝试自动修复启动画面问题");
             
             for (String issue : result.getIssues()) {
                 if (issue.contains("资源")) {
@@ -1427,7 +1427,7 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
             });
             
         } catch (Exception e) {
-            Log.w(TAG, "自动修复失败: " + e.getMessage());
+            AppLog.w(TAG, "自动修复失败: " + e.getMessage());
         }
     }
     
@@ -1485,7 +1485,7 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
             }).start();
             
         } catch (Exception e) {
-            Log.e(TAG, "触发手动诊断失败: " + e.getMessage(), e);
+            AppLog.e(TAG, "触发手动诊断失败: " + e.getMessage(), e);
             appendLog("触发诊断失败: " + e.getMessage());
         }
     }
@@ -1510,7 +1510,7 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
             startActivity(intent);
             
         } catch (Exception e) {
-            Log.e(TAG, "启动测试工具失败: " + e.getMessage(), e);
+            AppLog.e(TAG, "启动测试工具失败: " + e.getMessage(), e);
             appendLog("启动测试工具失败: " + e.getMessage());
         }
     }

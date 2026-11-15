@@ -2,11 +2,14 @@ package com.vone.vmq;
 
 import android.app.AppOpsManager;
 import android.app.usage.UsageEvents;
+import android.app.usage.UsageStats;
 import android.app.usage.UsageStatsManager;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.os.Process;
+
+import java.util.List;
 
 /**
  * 微信 / 支付宝 存活监控。
@@ -178,34 +181,63 @@ public final class AliveMonitor {
             }
             long now = System.currentTimeMillis();
             long from = now - USAGE_WINDOW_MIN * 60_000L;
-            UsageEvents events = usm.queryEvents(from, now);
-            if (events == null) {
-                return null;
-            }
-            UsageEvents.Event event = new UsageEvents.Event();
-            boolean active = false;
-            long lastAt = 0L;
-            while (events.hasNextEvent()) {
-                events.getNextEvent(event);
-                if (!pkg.equals(event.getPackageName())) {
-                    continue;
-                }
-                if (event.getEventType() == UsageEvents.Event.MOVE_TO_FOREGROUND) {
-                    active = true;
-                    lastAt = Math.max(lastAt, event.getTimeStamp());
-                }
-            }
-            if (active) {
-                long ago = Math.max(0L, (now - lastAt) / 60_000L);
+
+            // ① 先看 lastTimeUsed。比扫事件更可靠：应用一直停在前台时，
+            //    MOVE_TO_FOREGROUND 只会在切入那一刻产生一次，扫窗口内的"新事件"
+            //    会把「一直在用」误判成「无前台活动」。
+            long lastUsed = queryLastTimeUsed(usm, pkg, from, now);
+            if (lastUsed >= from) {
+                long ago = Math.max(0L, (now - lastUsed) / 60_000L);
                 return new Status(pkg, State.ACTIVE_RECENTLY, "usage",
                         ago + " 分钟前有前台活动", now);
             }
+
+            // ② 事件流兜底：个别 ROM 的 queryUsageStats 返回空，但事件仍在
+            if (hasForegroundEvent(usm, pkg, from, now)) {
+                return new Status(pkg, State.ACTIVE_RECENTLY, "usage",
+                        "近 " + USAGE_WINDOW_MIN + " 分钟有前台事件", now);
+            }
+
             return new Status(pkg, State.NO_ACTIVITY, "usage",
                     "近 " + USAGE_WINDOW_MIN + " 分钟无前台活动（不代表进程已退出）", now);
         } catch (Throwable t) {
             AppLog.w(TAG, "UsageStats 查询失败: " + t.getClass().getSimpleName());
             return null;
         }
+    }
+
+    /** 该包在窗口内最后一次被使用的时间戳，取不到返回 0。 */
+    private static long queryLastTimeUsed(UsageStatsManager usm, String pkg, long from, long to) {
+        List<UsageStats> stats = usm.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, from, to);
+        if (stats == null) {
+            return 0L;
+        }
+        long best = 0L;
+        for (UsageStats s : stats) {
+            if (s != null && pkg.equals(s.getPackageName())) {
+                best = Math.max(best, s.getLastTimeUsed());
+            }
+        }
+        return best;
+    }
+
+    private static boolean hasForegroundEvent(
+            UsageStatsManager usm, String pkg, long from, long to) {
+        UsageEvents events = usm.queryEvents(from, to);
+        if (events == null) {
+            return false;
+        }
+        UsageEvents.Event event = new UsageEvents.Event();
+        while (events.hasNextEvent()) {
+            events.getNextEvent(event);
+            if (!pkg.equals(event.getPackageName())) {
+                continue;
+            }
+            if (event.getEventType() == UsageEvents.Event.MOVE_TO_FOREGROUND) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static boolean hasUsageStatsPermission(Context context) {

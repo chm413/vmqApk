@@ -37,7 +37,7 @@ public class PerformanceMonitor {
      */
     public void recordApplicationStart() {
         applicationStartTime = System.currentTimeMillis();
-        Log.d(TAG, "应用启动开始时间: " + applicationStartTime);
+        AppLog.d(TAG, "应用启动开始时间: " + applicationStartTime);
     }
     
     /**
@@ -47,11 +47,11 @@ public class PerformanceMonitor {
         long currentTime = System.currentTimeMillis();
         long startupTime = currentTime - applicationStartTime;
         
-        Log.i(TAG, "应用启动完成，耗时: " + startupTime + "ms");
+        AppLog.i(TAG, "应用启动完成，耗时: " + startupTime + "ms");
         
         // 如果启动时间超过3秒，记录警告
         if (startupTime > 3000) {
-            Log.w(TAG, "应用启动时间过长: " + startupTime + "ms");
+            AppLog.w(TAG, "应用启动时间过长: " + startupTime + "ms");
         }
     }
     
@@ -88,21 +88,21 @@ public class PerformanceMonitor {
         if (currentTime - lastMemoryCheck > 30000) {
             MemoryInfo memoryInfo = getCurrentMemoryUsage();
             
-            Log.d(TAG, "内存使用情况:");
-            Log.d(TAG, "  总内存: " + formatBytes(memoryInfo.totalMemory));
-            Log.d(TAG, "  可用内存: " + formatBytes(memoryInfo.availableMemory));
-            Log.d(TAG, "  已用内存: " + formatBytes(memoryInfo.usedMemory));
-            Log.d(TAG, "  进程内存: " + formatBytes(memoryInfo.processMemory));
-            Log.d(TAG, "  内存不足: " + memoryInfo.isLowMemory);
+            AppLog.d(TAG, "内存使用情况:");
+            AppLog.d(TAG, "  总内存: " + formatBytes(memoryInfo.totalMemory));
+            AppLog.d(TAG, "  可用内存: " + formatBytes(memoryInfo.availableMemory));
+            AppLog.d(TAG, "  已用内存: " + formatBytes(memoryInfo.usedMemory));
+            AppLog.d(TAG, "  进程内存: " + formatBytes(memoryInfo.processMemory));
+            AppLog.d(TAG, "  内存不足: " + memoryInfo.isLowMemory);
             
             // 如果进程内存使用超过100MB，记录警告
             if (memoryInfo.processMemory > 100 * 1024 * 1024) {
-                Log.w(TAG, "进程内存使用过高: " + formatBytes(memoryInfo.processMemory));
+                AppLog.w(TAG, "进程内存使用过高: " + formatBytes(memoryInfo.processMemory));
             }
             
             // 如果系统内存不足，记录警告
             if (memoryInfo.isLowMemory) {
-                Log.w(TAG, "系统内存不足");
+                AppLog.w(TAG, "系统内存不足");
             }
             
             lastMemoryCheck = currentTime;
@@ -122,7 +122,7 @@ public class PerformanceMonitor {
             // 这里简化处理，实际实现可能需要更复杂的CPU监控逻辑
             return 0.0f; // 返回模拟值
         } catch (Exception e) {
-            Log.e(TAG, "获取CPU使用情况失败", e);
+            AppLog.e(TAG, "获取CPU使用情况失败", e);
             return 0.0f;
         }
     }
@@ -137,19 +137,19 @@ public class PerformanceMonitor {
     public void monitorNetworkRequest(String url, long startTime, long endTime, boolean success) {
         long requestTime = endTime - startTime;
         
-        Log.d(TAG, "网络请求性能:");
-        Log.d(TAG, "  URL: " + url);
-        Log.d(TAG, "  耗时: " + requestTime + "ms");
-        Log.d(TAG, "  状态: " + (success ? "成功" : "失败"));
+        AppLog.d(TAG, "网络请求性能:");
+        AppLog.d(TAG, "  URL: " + Desensitizer.any(url));
+        AppLog.d(TAG, "  耗时: " + requestTime + "ms");
+        AppLog.d(TAG, "  状态: " + (success ? "成功" : "失败"));
         
         // 如果请求时间超过5秒，记录警告
         if (requestTime > 5000) {
-            Log.w(TAG, "网络请求耗时过长: " + requestTime + "ms, URL: " + url);
+            AppLog.w(TAG, "网络请求耗时过长: " + requestTime + "ms, URL: " + Desensitizer.any(url));
         }
         
         // 如果请求失败，记录错误
         if (!success) {
-            Log.e(TAG, "网络请求失败: " + url);
+            AppLog.e(TAG, "网络请求失败: " + Desensitizer.any(url));
         }
     }
     
@@ -160,14 +160,14 @@ public class PerformanceMonitor {
      * @param duration 操作耗时
      */
     public void monitorBackgroundService(String serviceName, String operation, long duration) {
-        Log.d(TAG, "后台服务性能:");
-        Log.d(TAG, "  服务: " + serviceName);
-        Log.d(TAG, "  操作: " + operation);
-        Log.d(TAG, "  耗时: " + duration + "ms");
+        AppLog.d(TAG, "后台服务性能:");
+        AppLog.d(TAG, "  服务: " + serviceName);
+        AppLog.d(TAG, "  操作: " + operation);
+        AppLog.d(TAG, "  耗时: " + duration + "ms");
         
         // 如果操作耗时超过1秒，记录警告
         if (duration > 1000) {
-            Log.w(TAG, "后台服务操作耗时过长: " + duration + "ms, 服务: " + serviceName + ", 操作: " + operation);
+            AppLog.w(TAG, "后台服务操作耗时过长: " + duration + "ms, 服务: " + serviceName + ", 操作: " + operation);
         }
     }
     
@@ -178,11 +178,11 @@ public class PerformanceMonitor {
         // 建议垃圾回收
         System.gc();
         
-        Log.d(TAG, "执行内存优化");
+        AppLog.d(TAG, "执行内存优化");
         
         // 检查优化后的内存使用
         MemoryInfo memoryInfo = getCurrentMemoryUsage();
-        Log.d(TAG, "优化后进程内存: " + formatBytes(memoryInfo.processMemory));
+        AppLog.d(TAG, "优化后进程内存: " + formatBytes(memoryInfo.processMemory));
     }
     
     /**

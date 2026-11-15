@@ -31,7 +31,7 @@ public class ThemeUtils {
      * 应在Application.onCreate()中调用
      */
     public static void initializeTheme(Context context) {
-        Log.d(TAG, "初始化主题系统");
+        AppLog.d(TAG, "初始化主题系统");
         
         // 应用保存的主题模式
         int themeMode = getSavedThemeMode(context);
@@ -39,12 +39,12 @@ public class ThemeUtils {
         
         // 检查并应用动态颜色
         if (isDynamicColorSupported() && isDynamicColorEnabled(context)) {
-            Log.d(TAG, "应用动态颜色主题");
+            AppLog.d(TAG, "应用动态颜色主题");
             DynamicColors.applyToActivitiesIfAvailable(
                 (android.app.Application) context.getApplicationContext()
             );
         } else {
-            Log.d(TAG, "使用静态颜色主题");
+            AppLog.d(TAG, "使用静态颜色主题");
         }
     }
     
@@ -53,7 +53,7 @@ public class ThemeUtils {
      */
     public static void applyThemeToActivity(Activity activity) {
         if (isDynamicColorSupported() && isDynamicColorEnabled(activity)) {
-            Log.d(TAG, "为Activity应用动态颜色");
+            AppLog.d(TAG, "为Activity应用动态颜色");
             DynamicColors.applyToActivityIfAvailable(activity);
         }
     }
@@ -82,7 +82,7 @@ public class ThemeUtils {
         SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         prefs.edit().putBoolean(KEY_DYNAMIC_COLOR_ENABLED, enabled).apply();
         
-        Log.d(TAG, "动态颜色设置已更新: " + enabled);
+        AppLog.d(TAG, "动态颜色设置已更新: " + enabled);
         
         // 重新初始化主题
         initializeTheme(context);
@@ -103,7 +103,7 @@ public class ThemeUtils {
         SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         prefs.edit().putInt(KEY_THEME_MODE, themeMode).apply();
         
-        Log.d(TAG, "主题模式已更新: " + getThemeModeName(themeMode));
+        AppLog.d(TAG, "主题模式已更新: " + getThemeModeName(themeMode));
         
         // 应用新的主题模式
         applyThemeMode(themeMode);
@@ -200,7 +200,7 @@ public class ThemeUtils {
                 return typedValue.data;
             }
         } catch (Exception e) {
-            Log.w(TAG, "获取主题颜色失败: " + e.getMessage());
+            AppLog.w(TAG, "获取主题颜色失败: " + e.getMessage());
         }
         return 0;
     }
@@ -213,7 +213,7 @@ public class ThemeUtils {
             int nightModeFlags = activity.getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK;
             return nightModeFlags != Configuration.UI_MODE_NIGHT_YES;
         } catch (Exception e) {
-            Log.w(TAG, "检查主题模式失败: " + e.getMessage());
+            AppLog.w(TAG, "检查主题模式失败: " + e.getMessage());
             return true; // 默认返回浅色主题
         }
     }
