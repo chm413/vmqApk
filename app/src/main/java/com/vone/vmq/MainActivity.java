@@ -75,10 +75,6 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
     private final Handler handler = new Handler(Looper.getMainLooper());
     private TextInputEditText edtHost;
     private TextInputEditText edtKey;
-    private TextView logTextView;
-    private ScrollView logScrollView;
-    private com.google.android.material.button.MaterialButton btnClearLogsInline;
-    private LogBroadcastReceiver logBroadcastReceiver;
 
     private boolean isOk = false;
     private static String TAG = "MainActivity";
@@ -98,6 +94,7 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
     private TextView tvListener;
     private TextView tvHeart;
     private TextView tvHeartDetail;
+    private TextView tvAlive;
     int id = 0;
 
     // Activity Result Launchers - 替换过时的startActivityForResult
@@ -147,6 +144,7 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
         tvListener = findViewById(R.id.tv_listener);
         tvHeart = findViewById(R.id.tv_heart);
         tvHeartDetail = findViewById(R.id.tv_heart_detail);
+        tvAlive = findViewById(R.id.tv_alive);
         refreshStatus();
 
         //检测通知使用权是否启用
@@ -165,19 +163,10 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
         // 检查并请求必要的权限
         checkAndRequestPermissions();
 
-        // 注册广播接收器
-        logBroadcastReceiver = new LogBroadcastReceiver();
-        IntentFilter intentFilter = new IntentFilter();
-        intentFilter.addAction(NeNotificationService2.ACTION_LOG_UPDATE);
+        // 日志订阅已迁到设置页（统一日志 AppLog）。主页不再注册旧广播，
+        // 否则 appendLog -> AppLog -> 广播 -> appendLog 会自我循环。
         
-        // 适配Android 13+的BroadcastReceiver注册要求
-        // 使用RECEIVER_EXPORTED因为我们需要接收来自Service的广播
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(logBroadcastReceiver, intentFilter, Context.RECEIVER_EXPORTED);
-        } else {
-            registerReceiver(logBroadcastReceiver, intentFilter);
-        }
-        
+
         // 记录应用启动完成
         performanceMonitor.recordApplicationReady();
         
@@ -259,6 +248,12 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
                 ? new SimpleDateFormat("MM-dd HH:mm:ss", Locale.getDefault()).format(new Date(okAt))
                 : "--";
         tvHeartDetail.setText("最近成功：" + okText + "　延迟：" + (latency > 0 ? latency + "ms" : "--"));
+
+        if (tvAlive != null) {
+            String wechat = AliveMonitor.summaryOf(this, AliveMonitor.SLOT_WECHAT, "微信");
+            String alipay = AliveMonitor.summaryOf(this, AliveMonitor.SLOT_ALIPAY, "支付宝");
+            tvAlive.setText(wechat + "\n" + alipay);
+        }
     }
 
     /** 进入设置页（服务器 / 保活 / 日志） */
@@ -332,9 +327,6 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        if (logBroadcastReceiver != null) {
-            unregisterReceiver(logBroadcastReceiver);
-        }
         
         // 清理启动画面相关资源
         try {
@@ -484,27 +476,9 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
         if (!BuildConfig.DEBUG && shouldFilterLogMessage(message)) {
             return;
         }
-        // 主页不再展示日志（日志视图已迁移到设置页），无视图时只写系统日志
-        if (logTextView == null || logScrollView == null) {
-            Log.d(TAG, message);
-            return;
-        }
-        
-        handler.post(new Runnable() {
-            @Override
-            public void run() {
-                logTextView.append("\n" + message);
-                // 自动滚动到底部
-                logScrollView.post(new Runnable() {
-                    @Override
-                    public void run() {
-                        logScrollView.fullScroll(View.FOCUS_DOWN);
-                    }
-                });
-                // 更新清除按钮状态
-                updateClearButtonState();
-            }
-        });
+        // 统一走 AppLog：内存环形缓冲 + 按天文件 + 设置页实时广播。
+        // 主页自 v3.2.0 起不再有日志视图，这里只负责写入日志系统。
+        AppLog.i(TAG, message);
     }
     
     /**
@@ -575,20 +549,7 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
         return true;
     }
 
-    // 广播接收器，用于接收来自Service的日志
-    private class LogBroadcastReceiver extends BroadcastReceiver {
-        @Override
-        public void onReceive(Context context, Intent intent) {
-            if (intent != null && NeNotificationService2.ACTION_LOG_UPDATE.equals(intent.getAction())) {
-                String logMessage = intent.getStringExtra("log_message");
-                if (logMessage != null) {
-                    appendLog(logMessage);
-                }
-            }
-        }
-    }
-
-    //扫码配置
+    // 扫码配置
     public void startQrCode(View v) {
         // 添加触觉反馈
         v.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
@@ -715,7 +676,7 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
                     public void onResponse(Call call, Response response) throws IOException {
                         try {
                             String responseBody = response.body().string();
-                            Log.d(TAG, "配置测试心跳返回: " + responseBody);
+                            Log.d(TAG, "配置测试心跳返回: " + Desensitizer.any(responseBody));
                             Log.d(TAG, "配置测试HTTP状态码: " + response.code());
                         } catch (Exception e) {
                             Log.e(TAG, "配置测试心跳异常: " + e.getMessage(), e);
@@ -791,8 +752,9 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
                         @Override
                         public void run() {
                             try {
-                                appendLog("心跳返回: " + responseBody);
-                                Log.d(TAG, "心跳返回原始数据: " + responseBody);
+                                // 响应体可能回带签名、回调地址等标识信息，落日志前先脱敏
+                                appendLog("心跳返回: HTTP " + httpCode + " " + Desensitizer.any(responseBody));
+                                Log.d(TAG, "心跳返回原始数据: " + Desensitizer.any(responseBody));
                                 Log.d(TAG, "HTTP状态码: " + httpCode);
 
                                 JSONObject jsonObject = new JSONObject(responseBody);
@@ -809,7 +771,7 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
                                 if (code == 200 || code == 0 || code == 1) {
                                     // 成功状态 (兼容code=1的情况)
                                     Toast.makeText(MainActivity.this, "心跳返回：" + msg, Toast.LENGTH_LONG).show();
-                                    appendLog("心跳成功: " + msg);
+                                    appendLog("心跳成功: " + Desensitizer.any(msg));
                                     Log.d(TAG, "心跳成功");
                                     getSharedPreferences("vone", MODE_PRIVATE).edit()
                                             .putLong("last_heart_ok_at", System.currentTimeMillis())
@@ -819,7 +781,7 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
                                 } else {
                                     // 错误状态
                                     Toast.makeText(MainActivity.this, "心跳错误：" + msg, Toast.LENGTH_LONG).show();
-                                    appendLog("心跳失败: " + msg);
+                                    appendLog("心跳失败: " + Desensitizer.any(msg));
                                     Log.d(TAG, "心跳失败，code: " + code);
                                 }
                             } catch (Exception e) {
@@ -842,28 +804,6 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
                 }
             }
         });
-    }
-
-    public void clearLogs(View view) {
-        // 添加触觉反馈
-        view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
-        if (logTextView != null) {
-            logTextView.setText("");
-        }
-        // 更新清除按钮状态
-        updateClearButtonState();
-    }
-
-    /**
-     * 更新清除按钮的状态
-     */
-    private void updateClearButtonState() {
-        if (btnClearLogsInline != null && logTextView != null) {
-            // 检查日志内容是否为空
-            boolean hasContent = logTextView.getText().toString().trim().length() > 0;
-            // 根据日志内容调整按钮的透明度，但保持可点击
-            btnClearLogsInline.setAlpha(hasContent ? 1.0f : 0.6f);
-        }
     }
 
     /**
@@ -1200,7 +1140,7 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
                 public void onResponse(Call call, Response response) throws IOException {
                     try {
                         String responseBody = response.body().string();
-                        Log.d(TAG, "扫码配置心跳返回: " + responseBody);
+                        Log.d(TAG, "扫码配置心跳返回: " + Desensitizer.any(responseBody));
                         Log.d(TAG, "扫码配置HTTP状态码: " + response.code());
                     } catch (Exception e) {
                         Log.e(TAG, "扫码配置心跳异常: " + e.getMessage(), e);

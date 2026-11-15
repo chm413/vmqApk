@@ -312,6 +312,106 @@
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
+            <!-- 微信 / 支付宝 存活监控 -->
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="2dp"
+                app:strokeWidth="0dp"
+                style="@style/Widget.Material3.CardView.Outlined">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="微信 / 支付宝 存活监控"
+                        android:textColor="?attr/colorOnSurface"
+                        android:textSize="17sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:lineSpacingExtra="2dp"
+                        android:text="按设定间隔检查两个应用是否还在运行。有 Shizuku 时用 pidof 精确判断；没有则降级为「使用情况访问」推断活跃（不代表进程存活）；两者都没有时会明确显示无法检测，不会假装正常。"
+                        android:textColor="?attr/colorOnSurfaceVariant"
+                        android:textSize="13sp" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="14dp"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical">
+
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="启用存活监控"
+                            android:textColor="?attr/colorOnSurface"
+                            android:textSize="14sp" />
+
+                        <com.google.android.material.materialswitch.MaterialSwitch
+                            android:id="@+id/sw_alive_monitor"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content" />
+                    </LinearLayout>
+
+                    <TextView
+                        android:id="@+id/tv_alive_status"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp"
+                        android:lineSpacingExtra="3dp"
+                        android:text="微信：尚未检测&#10;支付宝：尚未检测"
+                        android:textColor="?attr/colorOnSurface"
+                        android:textSize="14sp" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        android:orientation="horizontal">
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btn_alive_check"
+                            android:layout_width="0dp"
+                            android:layout_height="44dp"
+                            android:layout_weight="1"
+                            android:text="立即检测"
+                            android:textSize="14sp"
+                            style="@style/Widget.Material3.Button" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btn_alive_interval"
+                            android:layout_width="wrap_content"
+                            android:layout_height="44dp"
+                            android:layout_marginStart="8dp"
+                            android:text="间隔 5 分钟"
+                            android:textSize="14sp"
+                            style="@style/Widget.Material3.Button.OutlinedButton" />
+                    </LinearLayout>
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_usage_stats"
+                        android:layout_width="match_parent"
+                        android:layout_height="44dp"
+                        android:layout_marginTop="8dp"
+                        android:text="授予使用情况访问权限（无 Shizuku 时需要）"
+                        android:textSize="13sp"
+                        style="@style/Widget.Material3.Button.TextButton" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
             <!-- 日志 -->
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
@@ -328,34 +428,55 @@
                     android:layout_height="wrap_content"
                     android:orientation="vertical">
 
-                    <RelativeLayout
+                    <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
                         android:padding="16dp">
 
                         <TextView
-                            android:layout_width="wrap_content"
+                            android:layout_width="0dp"
                             android:layout_height="wrap_content"
-                            android:layout_alignParentStart="true"
-                            android:layout_centerVertical="true"
+                            android:layout_weight="1"
                             android:text="运行日志"
                             android:textColor="?attr/colorOnSurface"
                             android:textSize="16sp"
                             android:textStyle="bold" />
 
                         <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btn_log_level"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:minWidth="0dp"
+                            android:minHeight="32dp"
+                            android:paddingHorizontal="6dp"
+                            android:text="INFO"
+                            android:textSize="12sp"
+                            style="@style/Widget.Material3.Button.TextButton" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btn_export_logs"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:minWidth="0dp"
+                            android:minHeight="32dp"
+                            android:paddingHorizontal="6dp"
+                            android:text="导出"
+                            android:textSize="12sp"
+                            style="@style/Widget.Material3.Button.TextButton" />
+
+                        <com.google.android.material.button.MaterialButton
                             android:id="@+id/btn_clear_logs"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:layout_alignParentEnd="true"
-                            android:layout_centerVertical="true"
                             android:minWidth="0dp"
                             android:minHeight="32dp"
-                            android:paddingHorizontal="12dp"
+                            android:paddingHorizontal="6dp"
                             android:text="清除"
-                            android:textSize="13sp"
+                            android:textSize="12sp"
                             style="@style/Widget.Material3.Button.TextButton" />
-                    </RelativeLayout>
+                    </LinearLayout>
 
                     <com.google.android.material.divider.MaterialDivider
                         android:layout_width="match_parent"

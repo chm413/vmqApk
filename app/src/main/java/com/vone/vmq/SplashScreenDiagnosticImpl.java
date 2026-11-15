@@ -96,12 +96,12 @@ public class SplashScreenDiagnosticImpl implements SplashScreenDiagnostic {
         // 使用专门的启动画面日志系统
         SplashScreenLogger.logInfo(message);
         
-        // 如果可能，也发送到应用的日志广播系统
+        // 同时写入应用统一日志（AppLog）
         try {
-            Utils.sendLogBroadcast(context, "[启动画面诊断] " + message);
+            Utils.logSplash("Splash", "[启动画面诊断] " + message);
         } catch (Exception e) {
-            // 忽略广播发送失败，避免影响诊断流程
-            Log.w(TAG, "发送日志广播失败: " + e.getMessage());
+            // 忽略日志写入失败，避免影响诊断流程
+            Log.w(TAG, "写入应用日志失败: " + e.getMessage());
         }
     }
     

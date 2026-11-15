@@ -38,7 +38,6 @@ import okhttp3.Response;
 
 public class NeNotificationService2 extends NotificationListenerService {
     private static String TAG = "NeNotificationService2";
-    public static final String ACTION_LOG_UPDATE = "com.vone.vmq.LOG_UPDATE";
     /** 心跳基础间隔：30s；断联时按指数退避放大到上限 5 分钟 */
     private static final long HEART_INTERVAL_MS = 30_000L;
     private static final long HEART_MAX_BACKOFF_MS = 300_000L;
@@ -48,6 +47,8 @@ public class NeNotificationService2 extends NotificationListenerService {
     private String host = "";
     private String key = "";
     private Thread newThread = null;
+    /** 存活监控线程（微信 / 支付宝），与心跳线程并行、独立生命周期 */
+    private Thread aliveThread = null;
     private PowerManager.WakeLock mWakeLock = null;
     public static boolean isRunning;
 
@@ -86,11 +87,11 @@ public class NeNotificationService2 extends NotificationListenerService {
 
     //心跳进程
     public void initAppHeart() {
-        Log.d(TAG, "开始启动心跳线程");
+        AppLog.d(TAG, "开始启动心跳线程");
         newThread = new Thread(new Runnable() {
             @Override
             public void run() {
-                Log.d(TAG, "心跳线程启动！");
+                AppLog.d(TAG, "心跳线程启动！");
                 while (isRunning && newThread == Thread.currentThread()) {
                     SharedPreferences read = getSharedPreferences("vone", MODE_PRIVATE);
                     host = read.getString("host", "");
@@ -108,8 +109,8 @@ public class NeNotificationService2 extends NotificationListenerService {
                     call.enqueue(new Callback() {
                         @Override
                         public void onFailure(Call call, IOException e) {
-                            Log.w(TAG, "心跳请求失败: " + e.getMessage());
                             heartFailures++;
+                            // 具体原因由 recordHeartResult 统一落日志，这里不再重复print
                             recordHeartResult(false, 0, e.getMessage());
                             foregroundHeart(url, 0L);
                         }
@@ -119,19 +120,18 @@ public class NeNotificationService2 extends NotificationListenerService {
                         public void onResponse(Call call, Response response) throws IOException {
                             try {
                                 MonitorResponse result = MonitorResponse.from(response);
-                                Log.d(TAG, "心跳服务结果: " + result.summary());
+                                AppLog.d(TAG, "心跳服务结果: " + Desensitizer.any(result.summary()));
                                 if (!result.isSuccessful()) {
-                                    Log.w(TAG, "心跳未被服务端接受，触发前台重试");
+                                    AppLog.w(TAG, "心跳未被服务端接受，触发前台重试");
                                     heartFailures++;
                                     recordHeartResult(false, 0, result.summary());
                                     foregroundHeart(url, result.foregroundRetryDelayMillis(0L));
                                 } else {
-                                    Log.d(TAG, "心跳服务请求成功");
                                     heartFailures = 0;
                                     recordHeartResult(true, System.currentTimeMillis() - requestStart, null);
                                 }
                             } catch (Exception e) {
-                                Log.e(TAG, "心跳服务解析异常: " + e.getMessage(), e);
+                                AppLog.e(TAG, "心跳服务解析异常: " + e.getMessage(), e);
                                 heartFailures++;
                                 recordHeartResult(false, 0, e.getMessage());
                                 foregroundHeart(url, 0L);
@@ -143,7 +143,7 @@ public class NeNotificationService2 extends NotificationListenerService {
                     // 断联退避：连续失败时 30s→60s→120s→240s→300s(上限)，成功立即回落到 30s
                     long sleepMs = Utils.backoffDelayMs(heartFailures, HEART_INTERVAL_MS, HEART_MAX_BACKOFF_MS);
                     if (heartFailures > 0) {
-                        Log.d(TAG, "心跳连续失败 " + heartFailures + " 次，下次重试间隔 " + sleepMs + "ms");
+                        AppLog.d(TAG, "心跳连续失败 " + heartFailures + " 次，下次重试间隔 " + sleepMs + "ms");
                     }
                     try {
                         Thread.sleep(sleepMs);
@@ -157,9 +157,59 @@ public class NeNotificationService2 extends NotificationListenerService {
     }
 
     /**
+     * 存活监控线程：按设定间隔检查微信 / 支付宝是否还在运行。
+     *
+     * <p>与心跳线程同生命周期，但用独立 Thread 引用，避免互相干扰中断状态。</p>
+     *
+     * <p>检测可能阻塞（Shizuku user service 绑定最长 8 秒），必须放在后台线程。
+     * 结果写入 SharedPreferences 供主页/设置页展示，同时每次检测都记一条日志。</p>
+     */
+    private void initAliveMonitor() {
+        aliveThread = new Thread(() -> {
+            AppLog.i(TAG, "存活监控线程启动，间隔 " + AliveMonitor.getIntervalMinutes(this) + " 分钟");
+            while (isRunning && aliveThread == Thread.currentThread()) {
+                try {
+                    if (AliveMonitor.isMonitorEnabled(this)) {
+                        AliveMonitor.checkAndRecord(this, ShizukuKeepAlive.PKG_ALIPAY);
+                        AliveMonitor.checkAndRecord(this, ShizukuKeepAlive.PKG_WECHAT);
+                    }
+                    long interval = Math.max(1, AliveMonitor.getIntervalMinutes(this)) * 60_000L;
+                    Thread.sleep(interval);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                } catch (Throwable t) {
+                    // 单次检测异常不能让监控线程整体退出
+                    AppLog.e(TAG, "存活监控异常", t);
+                    try {
+                        Thread.sleep(30_000L);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
+                }
+            }
+            AppLog.i(TAG, "存活监控线程退出");
+        }, "vmq-alive-monitor");
+        aliveThread.start();
+    }
+
+    /**
      * 记录最近心跳结果供主页仪表盘展示（跨进程/页面共享，写入 SharedPreferences）。
+     *
+     * <p>这里同时是心跳日志的**唯一汇聚点**：不论成功、失败还是解析异常，
+     * 最终都会走到本方法，因此在这里记一条结构化日志即可保证"每次心跳都有记录"，
+     * 不必依赖各个分支各自补日志。错误信息可能是服务端回带的地址/签名，落库前脱敏。</p>
      */
     private void recordHeartResult(boolean ok, long latencyMs, String error) {
+        if (ok) {
+            AppLog.i(TAG, "心跳成功 · 耗时 " + latencyMs + "ms");
+        } else {
+            // 错误信息本身是有诊断价值的技术描述，整段遮掉就失去意义；
+            // 用 any() 只遮里面的 URL / 签名参数，保留可读性。
+            AppLog.w(TAG, "心跳失败 · 连续 " + heartFailures + " 次"
+                    + " · " + Desensitizer.any(error == null ? "未知原因" : error));
+        }
         try {
             SharedPreferences.Editor editor = getSharedPreferences("vone", MODE_PRIVATE).edit();
             if (ok) {
@@ -170,6 +220,7 @@ public class NeNotificationService2 extends NotificationListenerService {
                 editor.putLong("last_heart_fail_at", System.currentTimeMillis());
                 editor.putInt("last_heart_fail_count", heartFailures);
                 if (error != null) {
+                    // 主页仅展示最近错误，原文保留便于用户自查配置；展示层不额外脱敏
                     editor.putString("last_heart_error", error);
                 }
             }
@@ -183,12 +234,12 @@ public class NeNotificationService2 extends NotificationListenerService {
      */
     @Override
     public void onNotificationPosted(StatusBarNotification sbn) {
-        Log.d(TAG, "接受到通知消息");
+        AppLog.d(TAG, "接受到通知消息");
         
         // Android 14+ 额外的通知验证
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             if (!validateNotificationAccess(sbn)) {
-                Log.w(TAG, "通知访问验证失败，跳过处理");
+                AppLog.w(TAG, "通知访问验证失败，跳过处理");
                 return;
             }
         }
@@ -197,7 +248,7 @@ public class NeNotificationService2 extends NotificationListenerService {
         
         // 微信支付部分通知，会调用两次，导致统计不准确
         if ((sbn.getNotification().flags & Notification.FLAG_GROUP_SUMMARY) != 0) {
-            Log.d(TAG, "群组摘要通知，忽略");
+            AppLog.d(TAG, "群组摘要通知，忽略");
             return;
         }
         
@@ -218,12 +269,14 @@ public class NeNotificationService2 extends NotificationListenerService {
         
         // Android 14+ 兼容性检查
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            Log.d(TAG, "Android 14+ 检测到，执行兼容性检查");
+            AppLog.d(TAG, "Android 14+ 检测到，执行兼容性检查");
             checkAndroid14Compatibility();
         }
         
         //开启心跳线程
         initAppHeart();
+        // 开启微信 / 支付宝存活监控线程
+        initAliveMonitor();
 
         handler.post(new Runnable() {
             public void run() {
@@ -243,6 +296,10 @@ public class NeNotificationService2 extends NotificationListenerService {
             newThread.interrupt();
         }
         newThread = null;
+        if (aliveThread != null) {
+            aliveThread.interrupt();
+        }
+        aliveThread = null;
         // 保活：监听被系统回收/断开时主动请求重新绑定，10 秒后仍未恢复则再兜底一次
         scheduleRebind();
     }
@@ -264,12 +321,12 @@ public class NeNotificationService2 extends NotificationListenerService {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                 requestRebind(new ComponentName(this, NeNotificationService2.class));
-                Log.i(TAG, "监听服务未就绪，已请求 rebind（" + reason + "）");
+                AppLog.i(TAG, "监听服务未就绪，已请求 rebind（" + reason + "）");
                 sendBroadcastLog("监听服务断开，正在自动恢复（" + reason + "）");
             }
         } catch (Exception e) {
             // SecurityException：通知使用权被用户关闭，需引导重新授权
-            Log.w(TAG, "rebind 失败（" + reason + "）: " + e.getMessage());
+            AppLog.w(TAG, "rebind 失败（" + reason + "）: " + e.getMessage());
             sendBroadcastLog("监听服务自动恢复失败，请检查通知使用权: " + e.getMessage());
         }
     }
@@ -278,7 +335,7 @@ public class NeNotificationService2 extends NotificationListenerService {
         if (!sbn.isClearable()) {
             return;
         }
-        Log.i(TAG, "write notify message to file");
+        AppLog.i(TAG, "write notify message to file");
         //            具有写入权限，否则不写入
         CharSequence notificationTitle = null;
         CharSequence notificationText = null;
@@ -361,7 +418,7 @@ public class NeNotificationService2 extends NotificationListenerService {
                 extraJson.put("show", false);
                 extraJson.put("retry_after_millis", retryAfterMillis);
             } catch (JSONException jsonException) {
-                Log.w(TAG, "编码心跳前台重试参数失败", jsonException);
+                AppLog.w(TAG, "编码心跳前台重试参数失败", jsonException);
             }
             handler.post(new Runnable() {
                 @Override
@@ -386,7 +443,7 @@ public class NeNotificationService2 extends NotificationListenerService {
                 extraJson.put("try_count", 5);
                 extraJson.put("retry_after_millis", retryAfterMillis);
             } catch (JSONException jsonException) {
-                Log.w(TAG, "编码推送前台重试参数失败", jsonException);
+                AppLog.w(TAG, "编码推送前台重试参数失败", jsonException);
             }
             handler.post(new Runnable() {
                 @Override
@@ -404,7 +461,7 @@ public class NeNotificationService2 extends NotificationListenerService {
      */
     public static void enterForeground(Context context, String title, String text, String extra) {
         if (context == null) return;
-        Log.i(TAG, "enter fore ground");
+        AppLog.i(TAG, "enter fore ground");
         Intent intent = new Intent(context, ForegroundServer.class);
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         intent.putExtra(ForegroundServer.GET_NOTIFY_TITLE, title == null ? "" : title);
@@ -419,7 +476,7 @@ public class NeNotificationService2 extends NotificationListenerService {
 
     public static void exitForeground(Context context) {
         if (context == null) return;
-        Log.i(TAG, "exitForeground");
+        AppLog.i(TAG, "exitForeground");
 
         Intent intent1 = new Intent();
         intent1.setAction(Constant.FINISH_FOREGROUND_SERVICE);
@@ -455,10 +512,13 @@ public class NeNotificationService2 extends NotificationListenerService {
         }
     }
 
+    /**
+     * 保留旧方法名以兼容既有调用点，实际统一走 {@link AppLog}：
+     * 这样服务侧日志能同时进内存缓冲、按天落盘，并在设置页实时刷新。
+     * 早期那条 {@code ACTION_LOG_UPDATE} 自定义广播通道已整体移除。
+     */
     private void sendBroadcastLog(String logMessage) {
-        Intent intent = new Intent(ACTION_LOG_UPDATE);
-        intent.putExtra("log_message", logMessage);
-        sendBroadcast(intent);
+        AppLog.i(TAG, logMessage);
     }
 
     /**
@@ -474,7 +534,7 @@ public class NeNotificationService2 extends NotificationListenerService {
                     this, android.Manifest.permission.POST_NOTIFICATIONS);
                 
                 if (notificationPermission != PackageManager.PERMISSION_GRANTED) {
-                    Log.w(TAG, "Android 13+ 通知权限未授予，可能影响功能");
+                    AppLog.w(TAG, "Android 13+ 通知权限未授予，可能影响功能");
                     sendBroadcastLog("警告：通知权限未授予，请在设置中开启");
                 }
             }
@@ -484,16 +544,16 @@ public class NeNotificationService2 extends NotificationListenerService {
                 getContentResolver(), "enabled_notification_listeners");
             
             if (enabledListeners == null || !enabledListeners.contains(getPackageName())) {
-                Log.w(TAG, "通知监听权限可能未正确配置");
+                AppLog.w(TAG, "通知监听权限可能未正确配置");
                 sendBroadcastLog("警告：通知监听权限配置异常");
             } else {
-                Log.d(TAG, "通知监听权限配置正常");
+                AppLog.d(TAG, "通知监听权限配置正常");
                 sendBroadcastLog("通知监听权限配置正常");
             }
             
             // 检查电池优化白名单
             if (!Utils.checkBatteryWhiteList(this)) {
-                Log.w(TAG, "应用未加入电池优化白名单，可能影响后台运行");
+                AppLog.w(TAG, "应用未加入电池优化白名单，可能影响后台运行");
                 sendBroadcastLog("建议：将应用加入电池优化白名单");
             }
             
@@ -501,7 +561,7 @@ public class NeNotificationService2 extends NotificationListenerService {
             validatePaymentAppsAccessibility();
             
         } catch (Exception e) {
-            Log.e(TAG, "Android 14+ 兼容性检查异常: " + e.getMessage(), e);
+            AppLog.e(TAG, "Android 14+ 兼容性检查异常: " + e.getMessage(), e);
             sendBroadcastLog("兼容性检查异常: " + e.getMessage());
         }
     }
@@ -516,30 +576,30 @@ public class NeNotificationService2 extends NotificationListenerService {
         // 检查支付宝
         try {
             pm.getPackageInfo("com.eg.android.AlipayGphone", PackageManager.GET_ACTIVITIES);
-            Log.d(TAG, "支付宝应用检测正常");
+            AppLog.d(TAG, "支付宝应用检测正常");
             sendBroadcastLog("支付宝应用检测正常");
         } catch (PackageManager.NameNotFoundException e) {
-            Log.w(TAG, "未检测到支付宝应用");
+            AppLog.w(TAG, "未检测到支付宝应用");
             sendBroadcastLog("未检测到支付宝应用");
         }
         
         // 检查微信
         try {
             pm.getPackageInfo("com.tencent.mm", PackageManager.GET_ACTIVITIES);
-            Log.d(TAG, "微信应用检测正常");
+            AppLog.d(TAG, "微信应用检测正常");
             sendBroadcastLog("微信应用检测正常");
         } catch (PackageManager.NameNotFoundException e) {
-            Log.w(TAG, "未检测到微信应用");
+            AppLog.w(TAG, "未检测到微信应用");
             sendBroadcastLog("未检测到微信应用");
         }
         
         // 检查企业微信
         try {
             pm.getPackageInfo("com.tencent.wework", PackageManager.GET_ACTIVITIES);
-            Log.d(TAG, "企业微信应用检测正常");
+            AppLog.d(TAG, "企业微信应用检测正常");
             sendBroadcastLog("企业微信应用检测正常");
         } catch (PackageManager.NameNotFoundException e) {
-            Log.d(TAG, "未检测到企业微信应用（可选）");
+            AppLog.d(TAG, "未检测到企业微信应用（可选）");
         }
     }
 
@@ -566,7 +626,7 @@ public class NeNotificationService2 extends NotificationListenerService {
                    "com.vone.qrcode".equals(pkg);
                    
         } catch (Exception e) {
-            Log.e(TAG, "通知访问验证异常: " + e.getMessage(), e);
+            AppLog.e(TAG, "通知访问验证异常: " + e.getMessage(), e);
             return false;
         }
     }
@@ -586,11 +646,12 @@ public class NeNotificationService2 extends NotificationListenerService {
             if (extras != null) {
                 CharSequence _title = extras.getCharSequence(NotificationCompat.EXTRA_TITLE, "");
                 CharSequence _content = extras.getCharSequence(NotificationCompat.EXTRA_TEXT, "");
-                Log.d(TAG, "**********************");
-                Log.d(TAG, "包名:" + pkg);
-                Log.d(TAG, "标题:" + _title);
-                Log.d(TAG, "内容:" + _content);
-                Log.d(TAG, "**********************");
+                // 通知原文含用户昵称、到账金额、转账备注，属敏感信息，绝不落原文。
+                // 日志只保留"哪个包、多长、首尾少量字符"，用于判断是不是到账消息这一类；
+                // 真正要核对识别结果，看紧随其后的「匹配成功 / 未匹配」记录即可。
+                AppLog.d(TAG, "收到通知 pkg=" + pkg
+                        + " 标题=" + Desensitizer.text(_title == null ? "" : _title.toString(), 2, 2)
+                        + " 正文=" + Desensitizer.text(_content == null ? "" : _content.toString(), 2, 2));
                 // to string (企业微信之类的 getString 会出错，换getCharSequence)
                 String title = _title.toString();
                 String content = _content.toString();
@@ -634,7 +695,7 @@ public class NeNotificationService2 extends NotificationListenerService {
                     }
                 }
                 if (money != null) {
-                    Log.d(TAG, "onAccessibilityEvent: 匹配成功： 支付宝 到账 " + money);
+                    AppLog.d(TAG, "onAccessibilityEvent: 匹配成功： 支付宝 到账 " + money);
                     final String finalMoney = money;
                     handler.post(new Runnable() {
                         public void run() {
@@ -645,7 +706,7 @@ public class NeNotificationService2 extends NotificationListenerService {
                     try{
                         appPush(2, Double.parseDouble(money));
                     } catch (Exception e) {
-                        Log.d(TAG, "app push 错误！！！");
+                        AppLog.d(TAG, "app push 错误！！！");
                     }
                 } else {
                     handler.post(new Runnable() {
@@ -678,7 +739,7 @@ public class NeNotificationService2 extends NotificationListenerService {
                     money = getMoney(content);
                 }
                 if (money != null) {
-                    Log.d(TAG, "onAccessibilityEvent: 匹配成功： 微信到账 " + money);
+                    AppLog.d(TAG, "onAccessibilityEvent: 匹配成功： 微信到账 " + money);
                     final String finalMoney = money;
                     handler.post(new Runnable() {
                         public void run() {
@@ -689,7 +750,7 @@ public class NeNotificationService2 extends NotificationListenerService {
                     try {
                         appPush(1, Double.parseDouble(money));
                     } catch (Exception e) {
-                        Log.d(TAG, "app push 错误！！！");
+                        AppLog.d(TAG, "app push 错误！！！");
                     }
                 } else {
                     handler.post(new Runnable() {

@@ -240,8 +240,8 @@ public class SplashScreenLogger {
                         writer.flush();
                     }
                     
-                    // 同时发送到应用的日志广播系统
-                    Utils.sendLogBroadcast(context, "[启动画面] " + message);
+                    // 同时写入应用统一日志（AppLog）
+                    Utils.logSplash("Splash", "[启动画面] " + message);
                     
                 } catch (IOException e) {
                     Log.w(TAG, "写入日志文件失败: " + e.getMessage());

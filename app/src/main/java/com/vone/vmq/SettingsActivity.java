@@ -67,8 +67,15 @@ public class SettingsActivity extends AppCompatActivity {
     private TextInputEditText edtHost;
     private TextInputEditText edtKey;
     private MaterialSwitch swVerifySsl;
+    /** 日志 TextView 的字符上限，超出后裁掉前半段，防止长时间运行卡顿 */
+    private static final int MAX_LOG_CHARS = 60_000;
+
     private TextView logText;
     private ScrollView logScroll;
+    private MaterialSwitch swAliveMonitor;
+    private MaterialButton btnAliveInterval;
+    private MaterialButton btnLogLevel;
+    private TextView tvAliveStatus;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private ActivityResultLauncher<Intent> qrLauncher;
@@ -114,10 +121,30 @@ public class SettingsActivity extends AppCompatActivity {
         findViewById(R.id.btn_app_detail).setOnClickListener(v -> openAppDetail());
         findViewById(R.id.btn_keepalive_guide).setOnClickListener(v -> showKeepAliveGuide());
         findViewById(R.id.btn_clear_logs).setOnClickListener(v -> {
+            AppLog.clear();
             if (logText != null) {
                 logText.setText("");
             }
+            // 日志管理动作本身也要留痕，否则"谁清空的"永远查不到
+            AppLog.event("Settings", "清空日志", "用户手动清除全部内存与磁盘日志");
         });
+        findViewById(R.id.btn_export_logs).setOnClickListener(v -> exportLogs());
+        btnLogLevel = findViewById(R.id.btn_log_level);
+        btnLogLevel.setOnClickListener(v -> showLevelPicker());
+
+        // 运行监控配置
+        swAliveMonitor = findViewById(R.id.sw_alive_monitor);
+        btnAliveInterval = findViewById(R.id.btn_alive_interval);
+        tvAliveStatus = findViewById(R.id.tv_alive_status);
+        swAliveMonitor.setChecked(AliveMonitor.isMonitorEnabled(this));
+        swAliveMonitor.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            AliveMonitor.setMonitorEnabled(this, isChecked);
+            AppLog.event("Monitor", "存活监控开关", isChecked ? "已启用" : "已停用");
+        });
+        btnAliveInterval.setOnClickListener(v -> showIntervalPicker());
+        findViewById(R.id.btn_alive_check).setOnClickListener(v -> runAliveCheckNow());
+        findViewById(R.id.btn_usage_stats).setOnClickListener(v -> openUsageAccessSettings());
+        refreshAliveStatus();
 
         tvShizukuStatus = findViewById(R.id.tv_shizuku_status);
         findViewById(R.id.btn_shizuku_auth).setOnClickListener(v -> requestShizuku());
@@ -140,25 +167,35 @@ public class SettingsActivity extends AppCompatActivity {
         }
         refreshShizukuStatus();
 
-        IntentFilter filter = new IntentFilter(NeNotificationService2.ACTION_LOG_UPDATE);
+        IntentFilter filter = new IntentFilter(AppLog.ACTION_APPEND);
         logReceiver = new BroadcastReceiver() {
             @Override
             public void onReceive(Context context, Intent intent) {
-                String msg = intent.getStringExtra("log");
-                appendLog(msg);
+                appendLog(intent.getStringExtra(AppLog.EXTRA_LINE));
             }
         };
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(logReceiver, filter, Context.RECEIVER_EXPORTED);
+            // 日志广播只在本应用内流转，不需要对外导出
+            registerReceiver(logReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
         } else {
             registerReceiver(logReceiver, filter);
         }
+
+        // 进入页面时回填已有日志（含进程重启前写入磁盘的部分）
+        if (logText != null) {
+            logText.setText(AppLog.dumpText());
+            if (logScroll != null) {
+                logScroll.post(() -> logScroll.fullScroll(View.FOCUS_DOWN));
+            }
+        }
+        updateLevelButton();
     }
 
     @Override
     protected void onResume() {
         super.onResume();
         refreshShizukuStatus();
+        refreshAliveStatus();
     }
 
     @Override
@@ -231,6 +268,7 @@ public class SettingsActivity extends AppCompatActivity {
     }
 
     private void executeBatchAsync(final String title, final List<String> commands) {
+        AppLog.event("KeepAlive", "开始执行", title + "，共 " + commands.size() + " 条命令");
         final AlertDialog progress = new MaterialAlertDialogBuilder(this)
                 .setTitle(title)
                 .setMessage("正在执行…")
@@ -242,6 +280,7 @@ public class SettingsActivity extends AppCompatActivity {
             // 先单独确认执行通道（Shizuku user service 绑定是异步的），
             // 失败时给一条明确提示，而不是把 15 条命令全部标成 ✘。
             if (!ShizukuKeepAlive.ensureBound(this)) {
+                AppLog.w("KeepAlive", title + "中止：Shizuku 执行通道未就绪（未授权或 Shizuku 未运行）");
                 runOnUiThread(() -> {
                     progress.dismiss();
                     new MaterialAlertDialogBuilder(this)
@@ -260,17 +299,26 @@ public class SettingsActivity extends AppCompatActivity {
 
             StringBuilder report = new StringBuilder();
             boolean allOk = true;
+            int failed = 0;
             for (String command : commands) {
                 String result = ShizukuKeepAlive.exec(SettingsActivity.this, command);
                 boolean ok = result.contains("exit=0");
                 allOk &= ok;
+                if (!ok) {
+                    failed++;
+                }
                 report.append(ok ? "✔ " : "✘ ").append(command).append('\n');
+                // 逐条留痕：保活改动的是系统级配置，出问题必须能回溯是哪一条、返回了什么
+                AppLog.event("KeepAlive", ok ? "命令成功" : "命令失败",
+                        command + (ok ? "" : " → " + result.replace("\n", " ")));
                 if (!ok) {
                     report.append("   ").append(result.replace("\n", " ")).append('\n');
                 }
             }
             final String text = report.toString();
             final boolean success = allOk;
+            AppLog.event("KeepAlive", success ? "全部成功" : "部分失败",
+                    title + "，成功 " + (commands.size() - failed) + "/" + commands.size());
             runOnUiThread(() -> {
                 progress.dismiss();
                 new MaterialAlertDialogBuilder(this)
@@ -519,15 +567,181 @@ public class SettingsActivity extends AppCompatActivity {
 
     // ---------------- 日志 ----------------
 
-    private void appendLog(final String message) {
-        if (TextUtils.isEmpty(message) || logText == null) {
+    /** 单条日志已自带时间戳与级别，这里只做追加与长度裁剪。 */
+    private void appendLog(final String line) {
+        if (TextUtils.isEmpty(line) || logText == null) {
             return;
         }
         handler.post(() -> {
-            logText.append("\n" + message);
+            logText.append(line);
+            logText.append("\n");
+            // 长时间运行会累积大量行，超出上限时裁掉前半段，避免 TextView 无限膨胀导致卡顿
+            CharSequence content = logText.getText();
+            int len = content.length();
+            if (len > MAX_LOG_CHARS) {
+                logText.setText(content.subSequence(len - MAX_LOG_CHARS + 2000, len));
+            }
             if (logScroll != null) {
                 logScroll.post(() -> logScroll.fullScroll(View.FOCUS_DOWN));
             }
         });
+    }
+
+    /**
+     * 导出日志。
+     *
+     * <p>导出取的是**磁盘全量**（{@link AppLog#fileText()}，含前几天的滚动文件），
+     * 而不是内存里那 500 条——用户导出的目的通常是发给别人排查，越全越好。
+     * 读盘可能几十毫秒到几秒，放后台线程并给一个进度框。</p>
+     */
+    private void exportLogs() {
+        final AlertDialog progress = new MaterialAlertDialogBuilder(this)
+                .setTitle("正在整理日志")
+                .setMessage("读取磁盘日志…")
+                .setCancelable(false)
+                .create();
+        progress.show();
+        new Thread(() -> {
+            String memory = AppLog.dumpText();
+            String disk = AppLog.fileText();
+            // 磁盘尾部与内存有重叠，优先用磁盘版本；两者都为空才提示
+            final String dump = disk.isEmpty() ? memory : disk;
+            runOnUiThread(() -> {
+                progress.dismiss();
+                if (TextUtils.isEmpty(dump)) {
+                    Toast.makeText(this, "暂无日志可导出", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                AppLog.event("Settings", "导出日志", "共 " + dump.length() + " 字符");
+                Intent intent = new Intent(Intent.ACTION_SEND);
+                intent.setType("text/plain");
+                intent.putExtra(Intent.EXTRA_SUBJECT, "V免签运行日志");
+                intent.putExtra(Intent.EXTRA_TEXT, dump);
+                try {
+                    startActivity(Intent.createChooser(intent, "导出日志"));
+                } catch (Exception e) {
+                    Toast.makeText(this, "没有可用的分享应用", Toast.LENGTH_SHORT).show();
+                }
+            });
+        }, "vmq-log-export").start();
+    }
+
+    private void showLevelPicker() {
+        final AppLog.Level[] levels = AppLog.Level.values();
+        String[] labels = {"调试（最详细，含每次检测）", "常规（默认）", "仅警告", "仅错误"};
+        int checked = 0;
+        for (int i = 0; i < levels.length; i++) {
+            if (levels[i] == AppLog.getLevel()) {
+                checked = i;
+            }
+        }
+        new MaterialAlertDialogBuilder(this)
+                .setTitle("日志级别")
+                .setSingleChoiceItems(labels, checked, (dialog, which) -> {
+                    AppLog.setLevel(this, levels[which]);
+                    updateLevelButton();
+                    AppLog.event("Settings", "切换日志级别", levels[which].name());
+                    dialog.dismiss();
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    private void updateLevelButton() {
+        if (btnLogLevel != null) {
+            btnLogLevel.setText(AppLog.getLevel().name());
+        }
+    }
+
+    // ---------------- 运行监控 ----------------
+
+    private void refreshAliveStatus() {
+        if (tvAliveStatus == null) {
+            return;
+        }
+        String wechat = AliveMonitor.summaryOf(this, AliveMonitor.SLOT_WECHAT, "微信");
+        String alipay = AliveMonitor.summaryOf(this, AliveMonitor.SLOT_ALIPAY, "支付宝");
+        tvAliveStatus.setText(wechat + "\n" + alipay);
+        if (btnAliveInterval != null) {
+            btnAliveInterval.setText("间隔 " + AliveMonitor.getIntervalMinutes(this) + " 分钟");
+        }
+    }
+
+    private void showIntervalPicker() {
+        final int[] options = {1, 5, 15, 30};
+        String[] labels = {"1 分钟", "5 分钟", "15 分钟", "30 分钟"};
+        int current = AliveMonitor.getIntervalMinutes(this);
+        int checked = 1;
+        for (int i = 0; i < options.length; i++) {
+            if (options[i] == current) {
+                checked = i;
+            }
+        }
+        new MaterialAlertDialogBuilder(this)
+                .setTitle("存活检查间隔")
+                .setSingleChoiceItems(labels, checked, (dialog, which) -> {
+                    AliveMonitor.setIntervalMinutes(this, options[which]);
+                    refreshAliveStatus();
+                    AppLog.event("Monitor", "调整检查间隔", options[which] + " 分钟，下次循环生效");
+                    dialog.dismiss();
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    private void runAliveCheckNow() {
+        final AlertDialog progress = new MaterialAlertDialogBuilder(this)
+                .setTitle("正在检测微信 / 支付宝")
+                .setMessage("通过 Shizuku（精确）或使用情况统计（推断）判断存活…")
+                .setCancelable(false)
+                .create();
+        progress.show();
+        AppLog.event("Monitor", "手动检测存活", "用户触发");
+
+        new Thread(() -> {
+            AliveMonitor.Status alipay =
+                    AliveMonitor.checkAndRecord(this, ShizukuKeepAlive.PKG_ALIPAY);
+            AliveMonitor.Status wechat =
+                    AliveMonitor.checkAndRecord(this, ShizukuKeepAlive.PKG_WECHAT);
+            runOnUiThread(() -> {
+                progress.dismiss();
+                refreshAliveStatus();
+                new MaterialAlertDialogBuilder(this)
+                        .setTitle("存活检测结果")
+                        .setMessage("微信：" + wechat.summary()
+                                + "\n　检测方式：" + methodLabel(wechat.method)
+                                + "\n\n支付宝：" + alipay.summary()
+                                + "\n　检测方式：" + methodLabel(alipay.method))
+                        .setPositiveButton("知道了", null)
+                        .show();
+            });
+        }, "vmq-alive-check").start();
+    }
+
+    private String methodLabel(String method) {
+        if ("pidof".equals(method)) {
+            return "Shizuku pidof（精确）";
+        }
+        if ("usage".equals(method)) {
+            return "使用情况统计（仅推断活跃，不代表进程存活）";
+        }
+        return "无可用手段";
+    }
+
+    private void openUsageAccessSettings() {
+        AppLog.event("Monitor", "打开使用情况访问设置", "引导用户授予 PACKAGE_USAGE_STATS");
+        try {
+            Intent intent = new Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS);
+            intent.setData(Uri.parse("package:" + getPackageName()));
+            startActivity(intent);
+        } catch (Exception e) {
+            try {
+                startActivity(new Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS));
+            } catch (Exception e2) {
+                Toast.makeText(this,
+                        "无法打开系统设置，请手动前往：设置 → 应用 → 特殊权限 → 使用情况访问",
+                        Toast.LENGTH_LONG).show();
+            }
+        }
     }
 }

@@ -52,7 +52,7 @@ public class ForegroundServer extends Service {
 
     private long nextPushDelay(IOException e) {
         long delay = Utils.backoffDelayMs(pushAttempt, MIN_SHOW_TIME, MAX_PUSH_BACKOFF_MS);
-        Log.d("ForegroundServer", "推送重试退避 " + delay + "ms（连续失败 " + pushAttempt + " 次）: "
+        AppLog.d("ForegroundServer", "推送重试退避 " + delay + "ms（连续失败 " + pushAttempt + " 次）: "
                 + (e != null ? e.getMessage() : "服务端拒绝"));
         return delay;
     }
@@ -70,7 +70,7 @@ public class ForegroundServer extends Service {
         }
         
         registerFinishBroad();
-        Log.d("ForegroundServer", "前台服务已创建");
+        AppLog.d("ForegroundServer", "前台服务已创建");
     }
 
     @Override
@@ -88,7 +88,7 @@ public class ForegroundServer extends Service {
     public void onDestroy() {
         unregisterFinishBroad();
         NotificationManager notificationManager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-        Log.i("ForegoundServer", "stop notification");
+        AppLog.i("ForegoundServer", "stop notification");
         if (notificationManager != null) {
             notificationManager.cancel(FOREGROUND_ID);
         }
@@ -146,7 +146,7 @@ public class ForegroundServer extends Service {
                 call.enqueue(new Callback() {
                     @Override
                     public void onFailure(Call call, IOException e) {
-                        Log.d("ForegroundServer", "前台推送请求失败: " + e.getMessage());
+                        AppLog.d("ForegroundServer", "前台推送请求失败: " + e.getMessage());
                         pushAttempt++;
                         tryPushByUrl(url, count - 1, nextPushDelay(e));
                     }
@@ -155,9 +155,9 @@ public class ForegroundServer extends Service {
                     public void onResponse(Call call, Response response) throws IOException {
                         try {
                             MonitorResponse result = MonitorResponse.from(response);
-                            Log.d("ForegroundServer", "前台推送结果: " + result.summary());
+                            AppLog.d("ForegroundServer", "前台推送结果: " + result.summary());
                             if (!result.isSuccessful()) {
-                                Log.d("ForegroundServer", "前台推送未被服务端接受，重试");
+                                AppLog.d("ForegroundServer", "前台推送未被服务端接受，重试");
                                 pushAttempt++;
                                 tryPushByUrl(
                                         url,
@@ -171,7 +171,7 @@ public class ForegroundServer extends Service {
                             }
                             pushAttempt = 0;
 
-                            Log.d("ForegroundServer", "前台推送成功，退出前台");
+                            AppLog.d("ForegroundServer", "前台推送成功，退出前台");
                             handler.post(new Runnable() {
                                 @Override
                                 public void run() {
@@ -179,7 +179,7 @@ public class ForegroundServer extends Service {
                                 }
                             });
                         } catch (Exception e) {
-                            Log.e("ForegroundServer", "前台推送响应解析异常: " + e.getMessage(), e);
+                            AppLog.e("ForegroundServer", "前台推送响应解析异常: " + e.getMessage(), e);
                             tryPushByUrl(url, count - 1, MIN_SHOW_TIME);
                         } finally {
                             response.close();

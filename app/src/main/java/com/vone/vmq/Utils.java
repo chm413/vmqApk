@@ -324,21 +324,20 @@ class Utils {
     }
 
     /**
-     * 发送日志广播
-     * 用于将日志消息发送到MainActivity显示
+     * 记录启动画面阶段的结构化日志。
+     *
+     * <p>早期实现是把日志用自定义广播（{@code ACTION_LOG_UPDATE}）发给 MainActivity 的日志视图。
+     * 但主页自 v3.2.0 起已不再展示日志列表，那条通道等于把启动阶段的日志丢进黑洞。
+     * 现改为统一写入 {@link AppLog}：启动问题也能进环形缓冲、按天文件，可在设置页查看与导出。</p>
+     *
+     * @param tag     来源标签，如 "Splash"
+     * @param message 日志内容
      */
-    public static void sendLogBroadcast(Context context, String message) {
-        if (context == null || message == null) {
+    public static void logSplash(String tag, String message) {
+        if (message == null) {
             return;
         }
-        
-        try {
-            Intent intent = new Intent(NeNotificationService2.ACTION_LOG_UPDATE);
-            intent.putExtra("log_message", message);
-            context.sendBroadcast(intent);
-        } catch (Exception e) {
-            android.util.Log.w("Utils", "发送日志广播失败: " + e.getMessage());
-        }
+        AppLog.i(tag == null ? "Splash" : tag, message);
     }
 
     /**

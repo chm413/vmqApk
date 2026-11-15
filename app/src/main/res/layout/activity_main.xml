@@ -91,6 +91,21 @@
                         android:text="最近成功：--　延迟：--ms"
                         android:textColor="?attr/colorOnSurfaceVariant"
                         android:textSize="14sp" />
+
+                    <com.google.android.material.divider.MaterialDivider
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp" />
+
+                    <TextView
+                        android:id="@+id/tv_alive"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        android:lineSpacingExtra="2dp"
+                        android:text="微信：尚未检测\n支付宝：尚未检测"
+                        android:textColor="?attr/colorOnSurfaceVariant"
+                        android:textSize="14sp" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
