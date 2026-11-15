@@ -27,7 +27,12 @@ import org.json.JSONObject;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Calendar;
+import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ExecutorService;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -49,6 +54,32 @@ public class NeNotificationService2 extends NotificationListenerService {
      * 带超时的锁本身不会泄漏，放宽的代价只是极端情况下多亮 10 秒屏。</p>
      */
     private static final long WAKE_LOCK_TIMEOUT_MS = 15_000L;
+
+    /** 收款类型：与后端 /api/monitor/push 的 type 参数一一对应 */
+    private static final int PAY_TYPE_WECHAT = 1;
+    private static final int PAY_TYPE_ALIPAY = 2;
+
+    /** 收款类应用的包名，集中一处便于核对 */
+    private static final String PKG_ALIPAY = "com.eg.android.AlipayGphone";
+    private static final String PKG_WECHAT = "com.tencent.mm";
+    private static final String PKG_WEWORK = "com.tencent.wework";
+
+    /**
+     * 到账通知去重窗口。
+     *
+     * <p>同一笔到账在很多情况下会触发<b>多次</b> {@code onNotificationPosted}：
+     * 通知内容被更新（同一个 key 再回调一次）、收款助手先发「到账」再更新为「已存入零钱」、
+     * 部分 ROM 直接重发。没有去重时每一笔钱都会被上报多次 ——
+     * 对按金额核销订单的后端来说就是**重复入账**，比少报更难处理。</p>
+     *
+     * <p>取 5 秒：同一通知的重复回调通常发生在 1 秒内；而两位顾客在同一 5 秒内
+     * 支付完全相同的金额、且通知文案一字不差的概率极低。窗口取太大会有丢单风险，
+     * 取太小则压不住 ROM 重发。</p>
+     */
+    private static final long DEDUP_WINDOW_MS = 5_000L;
+
+    /** 去重表容量上限，超过直接清空（收款场景用不到这么多条） */
+    private static final int DEDUP_MAX_ENTRIES = 32;
     /** 连续心跳失败次数，成功即清零（volatile：心跳回调线程与循环线程共享） */
     private volatile int heartFailures = 0;
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -66,6 +97,39 @@ public class NeNotificationService2 extends NotificationListenerService {
      * 的锁语义"顺带"保证可见性，一旦某条路径只置标志不唤醒，线程就看不到变化。</p>
      */
     public static volatile boolean isRunning;
+
+    /**
+     * 到账通知去重表：内容指纹 → 首次见到的时间戳。
+     *
+     * <p>只在通知回调里访问，加锁是为了防止厂商 ROM 并发投递回调时踩坏 HashMap。</p>
+     */
+    private final Map<String, Long> recentNotifications = new HashMap<>();
+
+    /**
+     * 「同包 + 同金额」去重窗口，<b>刻意比 {@link #DEDUP_WINDOW_MS} 更短</b>。
+     *
+     * <p>补的是文案指纹拦不住的那一类：支付宝到账通知更新后文案会变
+     * （「成功收款12.34元。」→「成功收款12.34元。已存入余额」），指纹不同但仍是同一笔钱。
+     * 只靠文案去重会漏掉它，于是同一笔被上报两次。</p>
+     *
+     * <p>窗口取 3 秒而不是 5 秒，是为了把「丢单」风险压到最小：通知回声几乎都在 1 秒内发生，
+     * 而 V免签的订单金额通常按分位随机，两笔真实到账出现<b>完全相同金额</b>且间隔 3 秒内的
+     * 概率极低。即便如此，每次命中都会写一条带金额的日志，万一真漏单能立刻查出来。</p>
+     */
+    private static final long AMOUNT_DEDUP_WINDOW_MS = 3_000L;
+
+    /**
+     * 通知落盘用的单线程执行器。
+     *
+     * <p>落盘原先直接在 {@code onNotificationPosted} 里做，每条通知都要
+     * open/write/close 三次系统调用；通知密集时（群聊、推送风暴）会把回调线程拖住，
+     * 进而丢通知。改成异步后回调只需投递一个任务。</p>
+     */
+    private final ExecutorService notifyDumpExecutor = Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "vmq-notify-dump");
+        t.setDaemon(true);
+        return t;
+    });
 
     /**
      * 申请设备电源锁，最多持有 {@value #WAKE_LOCK_TIMEOUT_MS} 毫秒。
@@ -363,8 +427,9 @@ public class NeNotificationService2 extends NotificationListenerService {
             }
         }
         
-        writeNotifyToFile(sbn);
-        
+        // 落盘已移到「确认是支付相关通知」之后（见 processPaymentNotification）：
+        // 此处对全部应用的通知都写盘，既把用户私信明文堆进一个文件，又占着回调线程做 IO。
+
         // 微信支付部分通知，会调用两次，导致统计不准确
         if ((sbn.getNotification().flags & Notification.FLAG_GROUP_SUMMARY) != 0) {
             AppLog.d(TAG, "群组摘要通知，忽略");
@@ -450,31 +515,60 @@ public class NeNotificationService2 extends NotificationListenerService {
         }
     }
 
-    private void writeNotifyToFile(StatusBarNotification sbn) {
-        if (!sbn.isClearable()) {
+    /**
+     * 把一条<b>支付类</b>通知追加到排查文件。
+     *
+     * <p>两处收窄：① 调用点已移到「确认是微信/支付宝/企业微信」之后，不再把用户所有应用
+     * 的通知明文都写进去；② 真正的文件 IO 丢到单线程执行器，回调线程只投递任务。
+     * 原先每条通知都在回调线程里做一次 open/write/close，推送风暴时会把回调拖慢到丢通知。</p>
+     */
+    private void writeNotifyToFile(final StatusBarNotification sbn, String title, String content) {
+        Notification notification = sbn.getNotification();
+        if (notification == null || !sbn.isClearable()) {
             return;
         }
-        AppLog.i(TAG, "write notify message to file");
-        //            具有写入权限，否则不写入
-        CharSequence notificationTitle = null;
-        CharSequence notificationText = null;
-        CharSequence subText = null;
-
-        Bundle extras = sbn.getNotification().extras;
-        if (extras != null) {
-            notificationTitle = extras.getCharSequence(Notification.EXTRA_TITLE);
-            notificationText = extras.getCharSequence(Notification.EXTRA_TEXT);
-            subText = extras.getCharSequence(Notification.EXTRA_SUB_TEXT);
-        }
-        String packageName = sbn.getPackageName();
-        String time = Utils.formatTime(Calendar.getInstance().getTime());
-
-        String writText = "\n" + "[" + time + "]" + "[" + packageName + "]" + "\n" +
-                "[" + notificationTitle + "]" + "\n" + "[" + notificationText + "]" + "\n" +
+        final String packageName = sbn.getPackageName();
+        Bundle extras = notification.extras;
+        final CharSequence subText =
+                extras == null ? null : extras.getCharSequence(Notification.EXTRA_SUB_TEXT);
+        final String time = Utils.formatTime(Calendar.getInstance().getTime());
+        final String writText = "\n" + "[" + time + "]" + "[" + packageName + "]" + "\n" +
+                "[" + title + "]" + "\n" + "[" + content + "]" + "\n" +
                 "[" + subText + "]" + "\n";
+        try {
+            notifyDumpExecutor.execute(new Runnable() {
+                @Override
+                public void run() {
+                    Utils.putStr(getApplicationContext(), writText);
+                }
+            });
+        } catch (Throwable t) {
+            // 执行器已关闭（服务销毁）时 RejectedExecutionException 会抛出来，忽略即可
+            AppLog.d(TAG, "通知落盘任务投递失败: " + t.getClass().getSimpleName());
+        }
+    }
 
-        // 使用 post 异步的写入
-        Utils.putStr(this, writText);
+    /**
+     * 服务真正销毁时（不是断开重绑）收掉后台线程与落盘执行器。
+     *
+     * <p>只在 {@code onDestroy} 里关：{@code onListenerDisconnected} 之后系统可能立刻重绑、
+     * 复用同一个服务实例，那时关掉执行器会让后续通知落盘永久失效。</p>
+     *
+     * <p>顺带把 {@link #isRunning} 置假并中断两条循环线程 —— 正常路径会先走
+     * {@code onListenerDisconnected}，但系统也可能直接销毁服务；不中断的话线程会继续
+     * 循环，持有一个已销毁的 Service 引用。</p>
+     */
+    @Override
+    public void onDestroy() {
+        isRunning = false;
+        if (newThread != null) {
+            newThread.interrupt();
+        }
+        if (aliveThread != null) {
+            aliveThread.interrupt();
+        }
+        notifyDumpExecutor.shutdown();
+        super.onDestroy();
     }
 
     /**
@@ -603,32 +697,76 @@ public class NeNotificationService2 extends NotificationListenerService {
     }
 
     /**
-     * 匹配支付宝的收款 元
-     * 为了兼容旧版，新版增加这个匹配
+     * 「数字 + 元」形态的金额。预编译：这是通知回调的热路径，每条通知都会调到。
+     *
+     * <p>两个分支的顺序很关键：<b>带小数的必须排在前面</b>。若把 {@code \d+元} 放前面，
+     * {@code "12.34元"} 会先被匹配成 {@code "34元"}。</p>
+     */
+    private static final Pattern MONEY_WITH_YUAN = Pattern.compile("(\\d+\\.\\d+)元|(\\d+)元");
+
+    /**
+     * 一个"像金额"的数字段：整数或最多一段小数。
+     *
+     * <p>用它过滤掉 {@code "1.2.3"}、{@code "."} 这类碎片 —— 否则后续
+     * {@code Double.parseDouble} 会抛 {@code NumberFormatException}，那一单就静默丢了。</p>
+     */
+    private static final Pattern MONEY_SEGMENT = Pattern.compile("\\d+(?:\\.\\d+)?");
+
+    /**
+     * 匹配支付宝的收款金额：只要数字后面带「元」就算，命中<b>第一个</b>即可。
+     *
+     * <p>v3.3.6 修：先去掉千分位逗号。此前 {@code "1,234.56元"} 会被匹配成
+     * {@code "234.56元"} —— 千元以上的大额收款金额被截掉一位，属于实打实的错单。</p>
      */
     public static String getMoney2(String content) {
-        Pattern compile = Pattern.compile("(\\d+\\.\\d+)元|(\\d+)元");
-        Matcher matcher = compile.matcher(content);
-        if (matcher.find()) {
-            String price = matcher.group();
-            return price.substring(0, price.lastIndexOf("元"));
-        } else {
+        if (content == null || content.isEmpty()) {
             return null;
         }
+        Matcher matcher = MONEY_WITH_YUAN.matcher(content.replace(",", ""));
+        if (!matcher.find()) {
+            return null;
+        }
+        String price = matcher.group();
+        int yuan = price.lastIndexOf("元");
+        return yuan > 0 ? price.substring(0, yuan) : null;
     }
 
+    /**
+     * 从一段没有「元」后缀的文本里猜金额：取<b>最后一个像金额的数字段</b>。
+     *
+     * <h3>为什么要"像金额"这个筛选</h3>
+     * 这个方法是兜底路径，输入是整条通知的标题或正文。原实现是「把非数字全换成逗号，
+     * 取最后一段」，在真实文案上会错得很难看：
+     * <ul>
+     *   <li>{@code "成功收款12.34元，获得1个商家积分"} → 取到 <b>1</b></li>
+     *   <li>{@code "成功收款12.34元，当前余额5678.90元"} → 取到 <b>5678.90</b>（余额当金额）</li>
+     * </ul>
+     * 现在优先取"带小数点"的段 —— 人民币金额几乎总带两位小数，而积分数、序号、
+     * 版本号、余额里的小数点位置往往不同。只有整段都找不到小数时才回落到最后一段。
+     */
     public static String getMoney(String content) {
-        List<String> ss = new ArrayList<>();
-        for (String sss : content.replaceAll(",", "")
-                .replaceAll("[^0-9.]", ",").split(",")) {
-            if (sss.length() > 0)
-                ss.add(sss);
-        }
-        if (ss.size() < 1) {
+        if (content == null || content.isEmpty()) {
             return null;
-        } else {
-            return ss.get(ss.size() - 1);
         }
+        List<String> segments = new ArrayList<>();
+        for (String s : content.replace(",", "").split("[^0-9.]")) {
+            if (s.isEmpty()) {
+                continue;
+            }
+            // 丢掉 "1.2.3"、"." 这类碎片，避免下游 parseDouble 抛异常丢单
+            if (MONEY_SEGMENT.matcher(s).matches()) {
+                segments.add(s);
+            }
+        }
+        if (segments.isEmpty()) {
+            return null;
+        }
+        for (int i = segments.size() - 1; i >= 0; i--) {
+            if (segments.get(i).indexOf('.') > 0) {
+                return segments.get(i);
+            }
+        }
+        return segments.get(segments.size() - 1);
     }
 
     /**
@@ -754,132 +892,215 @@ public class NeNotificationService2 extends NotificationListenerService {
      * 处理支付通知的核心逻辑（从原onNotificationPosted方法中提取）
      */
     private void processPaymentNotification(StatusBarNotification sbn) {
-        SharedPreferences read = getSharedPreferences("vone", MODE_PRIVATE);
-        host = read.getString("host", "");
-        key = read.getString("key", "");
-
         Notification notification = sbn.getNotification();
         String pkg = sbn.getPackageName();
-        if (notification != null) {
-            Bundle extras = notification.extras;
-            if (extras != null) {
-                CharSequence _title = extras.getCharSequence(NotificationCompat.EXTRA_TITLE, "");
-                CharSequence _content = extras.getCharSequence(NotificationCompat.EXTRA_TEXT, "");
-                // 通知原文含用户昵称、到账金额、转账备注，属敏感信息，绝不落原文。
-                // 日志只保留"哪个包、多长、首尾少量字符"，用于判断是不是到账消息这一类；
-                // 真正要核对识别结果，看紧随其后的「匹配成功 / 未匹配」记录即可。
-                AppLog.d(TAG, "收到通知 pkg=" + pkg
-                        + " 标题=" + Desensitizer.text(_title == null ? "" : _title.toString(), 2, 2)
-                        + " 正文=" + Desensitizer.text(_content == null ? "" : _content.toString(), 2, 2));
-                // to string (企业微信之类的 getString 会出错，换getCharSequence)
-                String title = _title.toString();
-                String content = _content.toString();
-                
-                if ("com.eg.android.AlipayGphone".equals(pkg)) {
-                    processAlipayNotification(title, content);
-                } else if ("com.tencent.mm".equals(pkg) || "com.tencent.wework".equals(pkg)) {
-                    processWechatNotification(title, content);
-                } else if ("com.vone.qrcode".equals(pkg)) {
-                    processTestNotification(content);
-                }
-            }
+        boolean isAlipay = PKG_ALIPAY.equals(pkg);
+        boolean isWechat = PKG_WECHAT.equals(pkg) || PKG_WEWORK.equals(pkg);
+        boolean isSelf = "com.vone.qrcode".equals(pkg);
+        // 包名过滤提到最前：此前每个应用的通知都要写一条日志、读一次配置，
+        // 群聊和推送密集时日志会被无关应用刷满，真正要排查的收款记录反而被淹没。
+        if (notification == null || !(isAlipay || isWechat || isSelf)) {
+            return;
+        }
+        Bundle extras = notification.extras;
+        if (extras == null) {
+            return;
+        }
+
+        CharSequence _title = extras.getCharSequence(NotificationCompat.EXTRA_TITLE, "");
+        CharSequence _content = extras.getCharSequence(NotificationCompat.EXTRA_TEXT, "");
+        // to string (企业微信之类的 getString 会出错，换getCharSequence)
+        String title = _title == null ? "" : _title.toString();
+        String content = _content == null ? "" : _content.toString();
+
+        // 通知原文含用户昵称、到账金额、转账备注，属敏感信息，绝不落原文。
+        // 日志只保留"哪个包、首尾少量字符"，用于判断是不是到账消息这一类；
+        // 真正要核对识别结果，看紧随其后的「到账 / 未匹配」记录即可。
+        AppLog.d(TAG, "收到通知 pkg=" + pkg
+                + " 标题=" + Desensitizer.text(title, 2, 2)
+                + " 正文=" + Desensitizer.text(content, 2, 2));
+
+        // 同一笔到账可能触发多次回调（内容更新 / ROM 重发），重复上报会被后端当成多笔入账。
+        // 必须在真正上报之前拦截，且只对支付相关的三个包生效，
+        // 否则无关通知会把去重表挤满、把真正需要拦的那条挤掉。
+        if (!markOnceIfNew(pkg, title, content)) {
+            AppLog.i(TAG, "疑似重复到账通知，已忽略（" + (DEDUP_WINDOW_MS / 1000)
+                    + " 秒内文案完全相同） pkg=" + pkg);
+            return;
+        }
+
+        // 只在确认是支付相关通知之后才落盘：此前对所有应用的通知都写，
+        // 等于把用户全部私信明文堆进一个文件，还占了回调线程的 IO 时间。
+        writeNotifyToFile(sbn, title, content);
+
+        if (isAlipay) {
+            processAlipayNotification(title, content);
+        } else if (isWechat) {
+            processWechatNotification(title, content);
+        } else {
+            processTestNotification(content);
         }
     }
 
     /**
-     * 处理支付宝通知
+     * 记录一次到账通知的指纹，用于抑制重复回调。
+     *
+     * @return {@code true} 表示窗口内首次见到，应当继续处理
+     */
+    private boolean markOnceIfNew(String pkg, String title, String content) {
+        return registerFingerprint(pkg + '\u0001' + title + '\u0001' + content, DEDUP_WINDOW_MS);
+    }
+
+    /**
+     * 记录一次「包名 + 金额」指纹，拦住文案变了但仍是同一笔的重复通知。
+     *
+     * @return {@code true} 表示窗口内首次见到该金额
+     */
+    private boolean markAmountOnce(String pkg, String money) {
+        return registerFingerprint(pkg + "\u0001#amount\u0001" + money, AMOUNT_DEDUP_WINDOW_MS);
+    }
+
+    /**
+     * 指纹登记：先清掉过期项，再看窗口内是否已存在。
+     *
+     * @return {@code true} 表示首次见到
+     */
+    private boolean registerFingerprint(String fingerprint, long windowMs) {
+        long now = System.currentTimeMillis();
+        synchronized (recentNotifications) {
+            long worstWindow = Math.max(DEDUP_WINDOW_MS, AMOUNT_DEDUP_WINDOW_MS);
+            Iterator<Map.Entry<String, Long>> it = recentNotifications.entrySet().iterator();
+            while (it.hasNext()) {
+                if (now - it.next().getValue() > worstWindow) {
+                    it.remove();
+                }
+            }
+            Long last = recentNotifications.get(fingerprint);
+            if (last != null && now - last <= windowMs) {
+                return false;
+            }
+            if (recentNotifications.size() >= DEDUP_MAX_ENTRIES) {
+                recentNotifications.clear();
+            }
+            recentNotifications.put(fingerprint, now);
+            return true;
+        }
+    }
+
+    /**
+     * 处理支付宝通知。
+     *
+     * <p>v3.3.6 起不再要求「正文必须非空」：部分 ROM 精简通知后金额只留在标题里，
+     * 原实现 {@code if (!content.equals(""))} 会把这种通知整单吞掉。关键词与金额
+     * 现在都在标题、正文两个字段上分别匹配。</p>
      */
     private void processAlipayNotification(String title, String content) {
-        if (!content.equals("")) {
-            if (content.contains("通过扫码向你付款") || content.contains("成功收款")
-                    || title.contains("通过扫码向你付款") || title.contains("成功收款")
-                    || content.contains("店员通") || title.contains("店员通")) {
-                String money;
-                // 新版支付宝，会显示积分情况下。先匹配标题上的金额
-                if (content.contains("商家积分")) {
-                    money = getMoney(title);
-                    if (money == null) {
-                        money = getMoney(content);
-                    }
-                } else {
-                    money = getMoney2(title);
-                    if (money == null) {  // 继续使用匹配 xxx元的方式
-                        money = getMoney2(content);
-                    }
-                    if (money == null) {  // 使用数字匹配的方式
-                        money = getMoney(content);
-                    }
-                    if (money == null) {
-                        money = getMoney(title);
-                    }
-                }
-                if (money != null) {
-                    AppLog.d(TAG, "onAccessibilityEvent: 匹配成功： 支付宝 到账 " + money);
-                    final String finalMoney = money;
-                    handler.post(new Runnable() {
-                        public void run() {
-                            Toast.makeText(getApplicationContext(), "匹配成功：支付宝到账" + finalMoney + "元", Toast.LENGTH_LONG).show();
-                        }
-                    });
-                    sendBroadcastLog("匹配成功：支付宝到账 " + money + "元");
-                    try{
-                        appPush(2, Double.parseDouble(money));
-                    } catch (Exception e) {
-                        AppLog.d(TAG, "app push 错误！！！");
-                    }
-                } else {
-                    handler.post(new Runnable() {
-                        public void run() {
-                            Toast.makeText(getApplicationContext(), "监听到支付宝消息但未匹配到金额！", Toast.LENGTH_SHORT).show();
-                        }
-                    });
-                }
-            }
+        boolean hit = containsAny(title, content,
+                "通过扫码向你付款", "成功收款", "店员通");
+        if (!hit) {
+            return;
         }
+        // 统一走 resolveMoney：带「元」的优先。此前「商家积分」分支直接调 getMoney，
+        // 而 getMoney 取的是最后一个数字段 —— "成功收款12.34元，获得1个商家积分"
+        // 会被解析成 1 元，把整笔金额记错。
+        reportPayment(PKG_ALIPAY, PAY_TYPE_ALIPAY, "支付宝", resolveMoney(title, content));
     }
 
     /**
-     * 处理微信通知
+     * 处理微信通知。
+     *
+     * <p>微信 8.0.50 起调整过收款通知格式，标题与正文的关键词形态都保留兼容。</p>
      */
     private void processWechatNotification(String title, String content) {
-        if (!content.equals("")) {
-            // 微信 最新版 8.0.50 开始，对收款通知栏格式做了修改
-            if (title.equals("微信") || title.equals("微信支付") || title.equals("微信收款助手") || title.equals("微信收款商业版")
-                    || content.contains("微信支付")
-                    || content.contains("微信收款助手")
-                    || content.contains("微信收款商业版")
-                    || (title.equals("对外收款") || title.equals("企业微信")) &&
-                    (content.contains("成功收款") || content.contains("收款通知"))) {
-                String money = getMoney2(content);
-                if (money == null) {  // 继续使用匹配 xxx元的方式
-                    money = getMoney2(title);
-                }
-                if (money == null) {  // 使用旧版的匹配方式，可能识别错误，不够精准
-                    money = getMoney(content);
-                }
-                if (money != null) {
-                    AppLog.d(TAG, "onAccessibilityEvent: 匹配成功： 微信到账 " + money);
-                    final String finalMoney = money;
-                    handler.post(new Runnable() {
-                        public void run() {
-                            Toast.makeText(getApplicationContext(), "匹配成功：微信到账" + finalMoney + "元", Toast.LENGTH_LONG).show();
-                        }
-                    });
-                    sendBroadcastLog("匹配成功：微信到账 " + money + "元");
-                    try {
-                        appPush(1, Double.parseDouble(money));
-                    } catch (Exception e) {
-                        AppLog.d(TAG, "app push 错误！！！");
-                    }
-                } else {
-                    handler.post(new Runnable() {
-                        public void run() {
-                            Toast.makeText(getApplicationContext(), "监听到微信消息但未匹配到金额！", Toast.LENGTH_SHORT).show();
-                        }
-                    });
-                }
+        boolean titleHit = "微信".equals(title) || "微信支付".equals(title)
+                || "微信收款助手".equals(title) || "微信收款商业版".equals(title);
+        boolean bodyHit = content.contains("微信支付") || content.contains("微信收款助手")
+                || content.contains("微信收款商业版");
+        // 「对外收款 / 企业微信」标题太泛，必须配合正文关键词，否则聊天消息也会命中
+        boolean corpHit = ("对外收款".equals(title) || "企业微信".equals(title))
+                && (content.contains("成功收款") || content.contains("收款通知"));
+        if (!titleHit && !bodyHit && !corpHit) {
+            return;
+        }
+        reportPayment(PKG_WECHAT, PAY_TYPE_WECHAT, "微信", resolveMoney(title, content));
+    }
+
+    /**
+     * 金额解析优先级：标题带「元」→ 正文带「元」→ 正文裸数字 → 标题裸数字。
+     *
+     * <p>标题优先是因为新版支付宝/微信把「成功收款X元」放在标题里，
+     * 正文则可能混入积分、余额、活动文案。</p>
+     */
+    private static String resolveMoney(String title, String content) {
+        String money = getMoney2(title);
+        if (money == null) {
+            money = getMoney2(content);
+        }
+        if (money == null) {
+            money = getMoney(content);
+        }
+        if (money == null) {
+            money = getMoney(title);
+        }
+        return money;
+    }
+
+    /** 标题或正文任一包含任一关键词。两个字段都可能为 ""，不会为 null。 */
+    private static boolean containsAny(String title, String content, String... keywords) {
+        for (String keyword : keywords) {
+            if (title.contains(keyword) || content.contains(keyword)) {
+                return true;
             }
         }
+        return false;
+    }
+
+    /**
+     * 把一笔到账上报给服务端。
+     *
+     * <p>三条失败路径全部要留下**可定位**的记录，不能像原来那样只写一句
+     * {@code "app push 错误！！！"} —— 那句话既没有金额也没有异常类型，
+     * 等于把钱丢了还不留线索。金额解析失败尤其必须弹提示：用户只有看到
+     * "本单未上报"才会去补单，否则这单就无声无息地消失了。</p>
+     */
+    private void reportPayment(String pkg, int type, String label, String money) {
+        if (money == null) {
+            AppLog.w(TAG, label + "通知命中收款关键词，但标题与正文都没解析出金额");
+            toast("监听到" + label + "消息但未匹配到金额！");
+            return;
+        }
+        final double amount;
+        try {
+            amount = Double.parseDouble(money);
+        } catch (NumberFormatException e) {
+            AppLog.w(TAG, label + " 金额非法，本单未上报：" + money);
+            toast("金额解析失败，本单未上报：" + money);
+            return;
+        }
+        // 文案变了但金额没变 → 高度怀疑是同一笔的第二次回声。
+        // 这一行必须留日志：万一真是两笔同额到账被合并，用户能从日志里立刻看到并补单。
+        if (!markAmountOnce(pkg, money)) {
+            AppLog.w(TAG, label + " 疑似同一笔的重复通知，已忽略：" + money
+                    + " 元（" + (AMOUNT_DEDUP_WINDOW_MS / 1000) + " 秒内同金额只上报一次）");
+            return;
+        }
+        AppLog.i(TAG, label + " 到账 " + money);
+        toast("匹配成功：" + label + "到账" + money + "元");
+        try {
+            appPush(type, amount);
+        } catch (Throwable t) {
+            AppLog.e(TAG, label + " 发起推送失败，本单未上报：" + money, t);
+            toast("推送发起失败，本单未上报：" + money);
+        }
+    }
+
+    private void toast(final String text) {
+        handler.post(new Runnable() {
+            @Override
+            public void run() {
+                Toast.makeText(getApplicationContext(), text, Toast.LENGTH_LONG).show();
+            }
+        });
     }
 
     /**
