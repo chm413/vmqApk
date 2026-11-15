@@ -15,10 +15,8 @@ import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
-import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.Settings;
@@ -32,7 +30,6 @@ import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import android.text.Editable;
 import android.text.TextUtils;
-import android.text.TextWatcher;
 import android.util.Log;
 import android.view.HapticFeedbackConstants;
 import android.view.MotionEvent;
@@ -52,6 +49,7 @@ import com.google.zxing.activity.CaptureActivity;
 import com.vone.qrcode.BuildConfig;
 import com.vone.qrcode.R;
 import com.vone.vmq.util.Constant;
+import com.vone.vmq.util.SecurePrefs;
 
 import org.json.JSONObject;
 
@@ -104,7 +102,6 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
 
     // Activity Result Launchers - 替换过时的startActivityForResult
     private ActivityResultLauncher<Intent> qrCodeLauncher;
-    private ActivityResultLauncher<Intent> manageStoragePermissionLauncher;
     
     // 启动画面诊断相关
     private SplashScreenDiagnostic splashScreenDiagnostic;
@@ -223,7 +220,8 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
         }
         SharedPreferences read = getSharedPreferences("vone", MODE_PRIVATE);
         host = read.getString("host", "");
-        key = read.getString("key", "");
+        // 密钥在 prefs 里是密文，必须经 SecurePrefs 解密（顺带迁移存量明文）
+        key = SecurePrefs.readKey(read);
         scheme = read.getString("scheme", "http");
         isOk = !TextUtils.isEmpty(host) && !TextUtils.isEmpty(key);
         boolean verifySsl = read.getBoolean("verify_ssl", false);
@@ -295,34 +293,19 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
     }
 
     /**
-     * 实时持久化保存配置并更新内存状态
+     * 把当前 host / key / scheme 落盘。
+     *
+     * <p>抽出来是为了修一个静默失败：主页扫码配置成功后**只写了 scheme**，
+     * host 与 key 仅停留在内存字段和 EditText 里 —— 既没有 TextWatcher，
+     * 也没有任何按钮接走它们（旧的 {@code saveConfigRealtime} 全类无调用点）。
+     * 表现是弹出"配置成功"，但重启应用后变回"未配置"，后台心跳也一直用空 host 发不出去。</p>
+     *
+     * <p>密钥经 {@link SecurePrefs#putKey} 加密后写入，明文不落盘。</p>
      */
-    private void saveConfigRealtime() {
-        if (edtHost == null || edtKey == null) return;
-
-        String inputHost = edtHost.getText() != null ? edtHost.getText().toString().trim() : "";
-        String inputKey = edtKey.getText() != null ? edtKey.getText().toString().trim() : "";
-
-        // 容错：自动过滤用户不小心输入的 http:// 或 https:// 前缀及末尾斜杠，
-        // 并记住协议（https:// 输入持久化为 https，无前缀时沿用已保存的协议）
-        if (inputHost.startsWith("https://")) {
-            inputHost = inputHost.substring(8);
-            scheme = "https";
-        } else if (inputHost.startsWith("http://")) {
-            inputHost = inputHost.substring(7);
-            scheme = "http";
-        }
-        if (inputHost.endsWith("/")) {
-            inputHost = inputHost.substring(0, inputHost.length() - 1);
-        }
-
-        host = inputHost;
-        key = inputKey;
-        isOk = !TextUtils.isEmpty(host) && !TextUtils.isEmpty(key);
-
+    private void persistHostKey() {
         SharedPreferences.Editor editor = getSharedPreferences("vone", MODE_PRIVATE).edit();
         editor.putString("host", host);
-        editor.putString("key", key);
+        SecurePrefs.putKey(editor, key);
         editor.putString("scheme", scheme);
         editor.apply();
     }
@@ -395,22 +378,8 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
             }
         );
 
-        // 管理存储权限设置结果处理
-        manageStoragePermissionLauncher = registerForActivityResult(
-            new ActivityResultContracts.StartActivityForResult(),
-            new ActivityResultCallback<ActivityResult>() {
-                @Override
-                public void onActivityResult(ActivityResult result) {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                        if (Environment.isExternalStorageManager()) {
-                            Toast.makeText(MainActivity.this, "文件管理权限已授予", Toast.LENGTH_SHORT).show();
-                        } else {
-                            Toast.makeText(MainActivity.this, "文件管理权限未授予，扫码功能可能无法正常使用", Toast.LENGTH_LONG).show();
-                        }
-                    }
-                }
-            }
-        );
+        // 原先这里还注册了「管理所有文件权限」的 ActivityResultLauncher。
+        // MANAGE_EXTERNAL_STORAGE 已从清单移除，也不再有任何跳转该设置页的入口。
     }
 
     /**
@@ -479,14 +448,13 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
                             return;
                         }
                         
-                        // 将扫描出的信息更新到输入框（触发自动保存）
+                        // 将扫描出的信息更新到输入框，并立即落盘（此前只写了 scheme，重启即丢）
                         if (edtHost != null) edtHost.setText(tmp[0]);
                         if (edtKey != null) edtKey.setText(tmp[1]);
                         host = tmp[0];
                         key = tmp[1];
                         scheme = qrScheme;
-                        getSharedPreferences("vone", MODE_PRIVATE)
-                                .edit().putString("scheme", scheme).apply();
+                        persistHostKey();
                         isOk = true;
                         Toast.makeText(MainActivity.this, "配置成功！", Toast.LENGTH_SHORT).show();
                         appendLog("扫码配置成功: " + tmp[0]);
@@ -584,9 +552,13 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
 
     // 扫码配置
     public void startQrCode(View v) {
-        // 添加触觉反馈
-        v.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
-        
+        // 添加触觉反馈。
+        // v 可能为 null：权限回调里用 startQrCode(null) 重新进入本方法，
+        // 此前直接调 v.performHapticFeedback() 会在授权成功后必崩（空指针）。
+        if (v != null) {
+            v.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
+        }
+
         // 检查相机权限
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
             showPermissionExplanationDialog(
@@ -597,22 +569,11 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
             );
             return;
         }
-        
-        // 检查存储权限
-        if (!hasStoragePermission()) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                showManageStoragePermissionDialog();
-            } else {
-                showPermissionExplanationDialog(
-                    "存储权限",
-                    "应用需要存储权限来保存扫码结果。",
-                    new String[]{Manifest.permission.READ_EXTERNAL_STORAGE, Manifest.permission.WRITE_EXTERNAL_STORAGE},
-                    Constant.REQ_PERM_EXTERNAL_STORAGE
-                );
-            }
-            return;
-        }
-        
+
+        // 此处原先还有一道存储权限硬门控（Android 11+ 要求「所有文件访问」）。
+        // 相册选图走 ACTION_GET_CONTENT + 流式解码，本就不需要存储权限，
+        // 该门控已随清单里的 MANAGE_EXTERNAL_STORAGE 一并移除。
+
         try {
             // 启动二维码扫描
             Intent intent = new Intent(MainActivity.this, CaptureActivity.class);
@@ -962,35 +923,10 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
                     new String[]{Manifest.permission.POST_NOTIFICATIONS},
                     Constant.REQ_PERM_POST_NOTIFICATIONS
                 );
-                return;
             }
         }
-
-        // 检查文件访问权限
-        checkStoragePermissions();
-    }
-
-    /**
-     * 检查存储权限
-     */
-    private void checkStoragePermissions() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            // Android 11+ 检查所有文件访问权限
-            if (!Environment.isExternalStorageManager()) {
-                showManageStoragePermissionDialog();
-            }
-        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            // Android 6-10 检查传统存储权限
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) 
-                != PackageManager.PERMISSION_GRANTED) {
-                showPermissionExplanationDialog(
-                    "存储权限",
-                    "应用需要存储权限来保存和读取配置文件。",
-                    new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE, Manifest.permission.READ_EXTERNAL_STORAGE},
-                    Constant.REQ_PERM_EXTERNAL_STORAGE
-                );
-            }
-        }
+        // 存储权限不再需要：相册选图走 ACTION_GET_CONTENT 的单次 URI 授权，
+        // 配置与日志写在 getExternalFilesDir()（应用私有目录）。
     }
 
     /**
@@ -1023,52 +959,6 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
                })
                .setCancelable(false)
                .show();
-    }
-
-    /**
-     * 显示管理所有文件权限对话框 (Android 11+)
-     */
-    private void showManageStoragePermissionDialog() {
-        new AlertDialog.Builder(this)
-            .setTitle("需要文件管理权限")
-            .setMessage("为了正常使用扫码功能，应用需要访问设备存储。请在设置中允许访问所有文件。")
-            .setPositiveButton("去设置", new DialogInterface.OnClickListener() {
-                @Override
-                public void onClick(DialogInterface dialog, int which) {
-                    try {
-                        Intent intent = new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION);
-                        intent.setData(Uri.parse("package:" + getPackageName()));
-                        manageStoragePermissionLauncher.launch(intent);
-                    } catch (Exception e) {
-                        // 如果无法打开特定设置页面，打开通用的应用设置页面
-                        Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
-                        intent.setData(Uri.parse("package:" + getPackageName()));
-                        startActivity(intent);
-                        Toast.makeText(MainActivity.this, "请在权限设置中允许访问所有文件", Toast.LENGTH_LONG).show();
-                    }
-                }
-            })
-            .setNegativeButton("取消", new DialogInterface.OnClickListener() {
-                @Override
-                public void onClick(DialogInterface dialog, int which) {
-                    Toast.makeText(MainActivity.this, "文件权限被拒绝，扫码功能可能无法正常使用", Toast.LENGTH_LONG).show();
-                }
-            })
-            .setCancelable(false)
-            .show();
-    }
-
-    /**
-     * 检查是否有存储权限
-     */
-    private boolean hasStoragePermission() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            return Environment.isExternalStorageManager();
-        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            return ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) 
-                == PackageManager.PERMISSION_GRANTED;
-        }
-        return true;
     }
 
     //各种权限的判断
@@ -1125,19 +1015,7 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        
-        // 处理管理所有文件权限设置返回
-        if (requestCode == Constant.REQ_PERM_MANAGE_EXTERNAL_STORAGE) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                if (Environment.isExternalStorageManager()) {
-                    Toast.makeText(this, "文件管理权限已授予", Toast.LENGTH_SHORT).show();
-                } else {
-                    Toast.makeText(this, "文件管理权限未授予，扫码功能可能无法正常使用", Toast.LENGTH_LONG).show();
-                }
-            }
-            return;
-        }
-        
+
         //扫描结果回调
         if (requestCode == Constant.REQ_QR_CODE && resultCode == RESULT_OK) {
             Bundle bundle = data.getExtras();
@@ -1183,14 +1061,13 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
                 }
             });
 
-            // 将扫描出的信息更新到输入框（自动触发实时保存）
+            // 将扫描出的信息更新到输入框，并立即落盘（此前只写了 scheme，重启即丢）
             if (edtHost != null) edtHost.setText(tmp[0]);
             if (edtKey != null) edtKey.setText(tmp[1]);
             host = tmp[0];
             key = tmp[1];
             scheme = qrScheme;
-            getSharedPreferences("vone", MODE_PRIVATE)
-                    .edit().putString("scheme", scheme).apply();
+            persistHostKey();
             isOk = true;
         }
     }
@@ -1209,28 +1086,13 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
                     Toast.makeText(this, "相机权限被拒绝，无法使用扫码功能", Toast.LENGTH_LONG).show();
                 }
                 break;
-                
-            case Constant.REQ_PERM_EXTERNAL_STORAGE:
-                // 文件读写权限申请
-                if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                    Toast.makeText(this, "存储权限已授予", Toast.LENGTH_SHORT).show();
-                    // 重新检查扫码所需的所有权限
-                    startQrCode(null);
-                } else {
-                    Toast.makeText(this, "存储权限被拒绝，扫码功能可能无法正常使用", Toast.LENGTH_LONG).show();
-                }
-                break;
-                
+
             case Constant.REQ_PERM_POST_NOTIFICATIONS:
-                // 通知权限申请 (Android 13+)
+                // 通知权限申请 (Android 13+)。拒绝也不阻断其他功能，只提示。
                 if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
                     Toast.makeText(this, "通知权限已授予", Toast.LENGTH_SHORT).show();
-                    // 继续检查其他权限
-                    checkStoragePermissions();
                 } else {
                     Toast.makeText(this, "通知权限被拒绝，可能无法正常显示通知", Toast.LENGTH_LONG).show();
-                    // 即使通知权限被拒绝，也继续检查存储权限
-                    checkStoragePermissions();
                 }
                 break;
         }

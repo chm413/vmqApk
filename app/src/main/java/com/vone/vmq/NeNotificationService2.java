@@ -20,6 +20,7 @@ import android.content.pm.PackageManager;
 import androidx.core.content.ContextCompat;
 
 import com.vone.qrcode.R;
+import com.vone.vmq.util.SecurePrefs;
 
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -248,7 +249,7 @@ public class NeNotificationService2 extends NotificationListenerService {
                     }
                     SharedPreferences read = getSharedPreferences("vone", MODE_PRIVATE);
                     host = read.getString("host", "");
-                    key = read.getString("key", "");
+                    key = SecurePrefs.readKey(read);
                     final String scheme = read.getString("scheme", "http");
 
                     //这里写入子线程需要做的工作
@@ -356,6 +357,9 @@ public class NeNotificationService2 extends NotificationListenerService {
                                 AliveMonitor.checkAndRecord(this, ShizukuKeepAlive.PKG_WECHAT);
                         AliveMonitor.maybeRevive(this, wechat);
                     }
+                    // 定时重启（实验性，默认关闭）：落在存活检查之后，
+                    // 避免在 pidof / am start 执行中途把进程杀掉。
+                    AutoRestart.maybeRestart(this);
                     long interval = Math.max(1, AliveMonitor.getIntervalMinutes(this)) * 60_000L;
                     nextCheckAt = System.currentTimeMillis() + interval;
                 } catch (Throwable t) {
@@ -576,9 +580,13 @@ public class NeNotificationService2 extends NotificationListenerService {
      */
     public void appPush(int type, double price) {
         acquireWakeLock(getApplicationContext());
+        // 记下推送时刻：供「定时重启进程」判断静默窗口——重启窗口内到达的
+        // 通知监听事件不会被系统重投递，必须避开正在推送的时刻。
+        getSharedPreferences("vone", MODE_PRIVATE).edit()
+                .putLong("last_push_at", System.currentTimeMillis()).apply();
         SharedPreferences read = getSharedPreferences("vone", MODE_PRIVATE);
         host = read.getString("host", "");
-        key = read.getString("key", "");
+        key = SecurePrefs.readKey(read);
         final String scheme = read.getString("scheme", "http");
 
         String t = MonitorSign.timestamp();

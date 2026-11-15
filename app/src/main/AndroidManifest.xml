@@ -5,13 +5,13 @@
     <uses-permission android:name="android.permission.INTERNET" /> <!-- 网络权限 -->
     <uses-permission android:name="android.permission.VIBRATE" /> <!-- 震动权限 -->
     <uses-permission android:name="android.permission.CAMERA" /> <!-- 摄像头权限 -->
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" 
-        android:maxSdkVersion="32" />
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" 
-        android:maxSdkVersion="32" />
-    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
-    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" 
-        tools:ignore="ScopedStorage" />
+    <!--
+        注意：这里刻意不声明任何存储权限（含 MANAGE_EXTERNAL_STORAGE「所有文件访问」）。
+        扫码相册选图走 ACTION_GET_CONTENT + ContentResolver.openInputStream，
+        由系统授予单次 URI 读权限，不需要存储权限；日志与配置写在
+        getExternalFilesDir()（应用私有目录），同样不需要权限。
+        声明了却用不上，只会让应用在系统设置里显示成"可以访问所有文件"。
+    -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-feature android:name="android.hardware.camera.autofocus" /> <!-- 自动聚焦权限 -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />

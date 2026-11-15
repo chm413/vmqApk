@@ -28,6 +28,7 @@ appops set com.vone.qrcode RECEIVE_SENSITIVE_NOTIFICATIONS allow
 7. **修复启动必崩**：v31 主题 windowBackground 用 `<bitmap>` 包 VectorDrawable 导致 Android 12+ 启动闪退（v3.1.1）
 8. **微信 / 支付宝存活监控**：按间隔周期检查两个应用是否还在运行；有 Shizuku 时用 `pidof` 精确判断，没有则降级为「使用情况访问」推断，两者都缺时明确显示「无法检测」而不是谎报「未运行」（v3.3.2）
 9. **统一运行日志**：内存 + 按天滚动文件（保留 3 天），重启后仍可回看；心跳、保活、存活检测、日志管理全部留痕，日志内容脱敏（配置页除外），支持导出与清除（v3.3.2）
+10. **权限最小化 + 通讯密钥加密**：不再申请任何存储权限（含「所有文件访问」），扫码相册选图靠系统单次 URI 授权即可；通讯密钥用 AndroidKeyStore 的 AES-256 加密存储，明文自动迁移（v3.3.8）
 
 优化功能：
 
@@ -156,6 +157,24 @@ V免签 是基于SpringBoot 2.1.1/ThinkPhP5.1 实现的一套免签支付程序�
 
 ## 更新记录
 
+ + v3.3.8（2026.11.16）**权限收窄 + 密钥加密版，建议升级**
+    + **通讯密钥改为加密保存**：用 AndroidKeyStore 的 AES-256 加密，密文形如 `v1:Base64(iv||ct)`；
+      密钥材料不出 TEE，也不会被 `allowBackup` 带走。存量明文**读到即自动迁移**，升级无需重新扫码。
+      零新增依赖（未引入 `security-crypto`），prefs 结构完全不变
+    + **移除「所有文件访问」等 4 个存储权限**：`MANAGE_EXTERNAL_STORAGE` / `READ_MEDIA_IMAGES` /
+      `READ_EXTERNAL_STORAGE` / `WRITE_EXTERNAL_STORAGE` 全部删除，并同步清掉扫码前的权限硬门控。
+      相册选图走 `ACTION_GET_CONTENT` + `openInputStream`，只需系统授予的单次 URI 读权限，
+      **无任何存储权限也能正常扫码**；日志与配置写在 `getExternalFilesDir()` 私有目录
+    + 删除死代码 `UriUtil`（`getRealPathFromUri` 在 `content://` URI 上会抛异常，已无调用点）
+    + 新增**定时重启进程（实验性，默认关闭）**：用于验证能否规避 Android 15 `dataSync` 前台服务
+      累计 6 小时/天上限。带三重校验（通知监听授权有效 / 有活跃链路 / 近 90 秒无推送与心跳），
+      时间戳用 `commit()` 同步落盘避免重启风暴。**多数机型无效**，界面已标注
+    + 修复**授权相机后必崩**：`onRequestPermissionsResult` 里 `startQrCode(null)` 而方法首行直接解引用 `v`
+    + 修复**相册选图解码失败必崩**：`decodeUri` 返回 null 时直接 `new RGBLuminanceSource(null)` 抛 NPE
+    + 修复**主页扫码配置不落盘**：回调只写了 `scheme`，`host`/`key` 停留在内存与输入框里
+      （`saveConfigRealtime()` 全类无调用点、也没有 TextWatcher），重启即回到「未配置」
+    + R5（密钥明文存 prefs）按要求**不动依赖**、R6（`Splash*` 占 22%）**不动代码**，
+      两者理由与完整回归清单详见 [RELEASE_NOTES_v3.3.8.md](RELEASE_NOTES_v3.3.8.md)
  + v3.3.7（2026.11.15）**全功能审计版，建议升级**
     + 修复**断网时推送重试只执行 3 次就中断**：前台服务 20 秒自停，而退避到第 4 次需 30 秒。
       改为「空闲超时」并加 10 分钟绝对寿命上限

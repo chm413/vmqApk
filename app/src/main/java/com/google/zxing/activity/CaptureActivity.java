@@ -184,6 +184,14 @@ public class CaptureActivity extends AppCompatActivity implements Callback {
         hints.put(DecodeHintType.CHARACTER_SET, "UTF8"); //设置二维码内容的编码
 
         scanBitmap = BitmapUtil.decodeUri(this, uri, 500, 500);
+        // decodeUri 在以下几种情况会返回 null：URI 已被回收（相册进程被系统杀掉后
+        // 单次读权限失效）、文件不是图片、图片过大导致 OOM 被 catch 住。
+        // 此前直接 new RGBLuminanceSource(null) 会抛 NullPointerException，
+        // 表现为"选完图就闪退"，而不是提示识别失败。
+        if (scanBitmap == null) {
+            Log.w("CaptureActivity", "相册图片解码失败，uri=" + uri);
+            return null;
+        }
         RGBLuminanceSource source = new RGBLuminanceSource(scanBitmap);
         BinaryBitmap bitmap1 = new BinaryBitmap(new HybridBinarizer(source));
         QRCodeReader reader = new QRCodeReader();

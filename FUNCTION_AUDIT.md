@@ -192,3 +192,35 @@ targetSdk = 34，Android 14 起对**非系统广播**的运行时注册强制要
   1 个在 Android 14 上必崩 —— 已全部修复
 - **保活与运行控制**：三版迭代后逻辑闭环，未发现新问题
 - **安全与合规**：存在 5 项取舍型风险，均需产品决策，不建议擅自改动默认值
+
+---
+
+## 六、v3.3.8 风险项处置记录
+
+上表 R1~R6 已按项目所有者决策逐项处理，处置结果如下。
+
+| # | 决策 | 落地情况 |
+|---|---|---|
+| R1 | **不改** | TLS 默认不校验证书保持不变。自签证书是本项目的主要使用场景，默认开启校验会让存量用户升级后直接断连 |
+| R2 | **改：加密保存** | 新增 `util/SecurePrefs`，AndroidKeyStore AES-256 + GCM 随机 IV，密文前缀 `v1:`；存量明文读取时自动迁移。覆盖 4 读 2 写共 6 处（审计时记为 5 处，实测为 6 处） |
+| R3 | **改：移除权限** | 删除 `MANAGE_EXTERNAL_STORAGE` / `READ_MEDIA_IMAGES` / `READ+WRITE_EXTERNAL_STORAGE`；同步删除启动流程里的权限硬门控（否则会 `return` 掉后续检查）。已确认扫码链路（`ACTION_GET_CONTENT` + `openInputStream`）不需要任何存储权限 |
+| R4 | **改：加实验开关** | 新增 `AutoRestart`，默认关闭。三重校验：通知监听授权有效、有活跃链路、近 90 秒无推送/心跳。时间戳用 `commit()` 同步落盘避免重启风暴。**明确标注「多数机型无效」**，因为它不能可靠重置系统侧的 uid 配额 |
+| R5 | **不改：不动依赖** | 不引入 `androidx.security:security-crypto`。`EncryptedSharedPreferences` 会改写整个 prefs 文件格式，与 `vone.xml` 里已有的几十个键混用风险更大；R2 的「值级加密」已覆盖同一威胁模型且零新增依赖 |
+| R6 | **不改：不动代码** | `Splash*` 11 个类逐项核对**全部存在活跃调用**（`App` / `MainActivity` / `LegacySplashScreenHelper`），不是死代码。改造收益（少量包体与启动耗时）低于改崩启动画面的风险 |
+
+### 本轮额外发现并修复（不在原审计清单内）
+
+| 缺陷 | 位置 | 后果 |
+|---|---|---|
+| `startQrCode(null)` 后首行直接解引用 `v` | `MainActivity.startQrCode` | 相机权限授权成功后**必崩**，扫码功能等于不可用 |
+| `decodeUri` 返回 null 时仍 `new RGBLuminanceSource(null)` | `CaptureActivity.scanningImage` | 选到非图片/超大图/URI 失效时**必崩**，而非提示识别失败 |
+| 主页扫码后只写 `scheme`，`host`/`key` 从未落盘 | `MainActivity.handleQrCodeResult` | 提示「配置成功」，**重启后变回未配置**，心跳一直用空 host；`saveConfigRealtime()` 全类无调用点，注释里所谓「自动触发实时保存」不成立 |
+| `UriUtil` 全类无外部调用且依赖 `MediaStore.DATA` | `util/UriUtil.java` | 死代码，且是唯一残留的存储权限依赖点 —— 已整类删除 |
+
+### v3.3.8 结论
+
+- **权限面**：从「可访问所有文件」收敛到**零存储权限**，短信/联系人/定位等敏感权限本就未申请
+- **密钥面**：明文存量已可迁移为 Keystore 加密，备份泄露不再等价于密钥泄露
+- **未解决**：R1（TLS 默认不校验）与 R4 的系统侧配额限制均无代码级解法，
+  前者是场景刚需，后者需 Android 平台侧支持
+

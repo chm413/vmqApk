@@ -39,6 +39,7 @@ import com.google.android.material.textfield.TextInputLayout;
 import com.google.zxing.activity.CaptureActivity;
 import com.vone.qrcode.R;
 import com.vone.vmq.util.Constant;
+import com.vone.vmq.util.SecurePrefs;
 
 import java.io.IOException;
 import java.util.Collections;
@@ -82,6 +83,10 @@ public class SettingsActivity extends AppCompatActivity {
     private MaterialSwitch swListen;
     private MaterialSwitch swReport;
     private MaterialSwitch swAutoRevive;
+    /** 定时重启进程（实验性） */
+    private MaterialSwitch swAutoRestart;
+    private TextView tvAutoRestartState;
+    private MaterialButton btnAutoRestartInterval;
     private TextView tvRunSummary;
     private MaterialButton btnPrivMode;
     /** 同步开关状态时置真，避免 setChecked 被当成用户操作 */
@@ -270,6 +275,26 @@ public class SettingsActivity extends AppCompatActivity {
             AppLog.event("Run", "未运行时自动拉起", checked ? "开启" : "关闭");
         });
 
+        // 定时重启进程（实验性）。默认关闭，开启时 AutoRestart 会把计时起点重置为现在，
+        // 避免"开一次就立刻重启"。
+        swAutoRestart = findViewById(R.id.sw_auto_restart);
+        tvAutoRestartState = findViewById(R.id.tv_auto_restart_state);
+        btnAutoRestartInterval = findViewById(R.id.btn_auto_restart_interval);
+        swAutoRestart.setOnCheckedChangeListener((v, checked) -> {
+            if (syncingRunSwitches) {
+                return;
+            }
+            AutoRestart.setEnabled(this, checked);
+            AppLog.event("Run", "定时重启进程（实验性）", checked ? "开启" : "关闭");
+            refreshAutoRestartState();
+            if (checked) {
+                Toast.makeText(this,
+                        "已开启：仅在通知监听授权有效、且近 90 秒无推送/心跳时才会重启",
+                        Toast.LENGTH_LONG).show();
+            }
+        });
+        btnAutoRestartInterval.setOnClickListener(v -> showRestartIntervalPicker());
+
         syncRunControls();
     }
 
@@ -288,10 +313,54 @@ public class SettingsActivity extends AppCompatActivity {
             swListen.setChecked(RunSwitch.isListenEnabled(this));
             swReport.setChecked(RunSwitch.isReportEnabled(this));
             swAutoRevive.setChecked(RunSwitch.isAutoReviveEnabled(this));
+            if (swAutoRestart != null) {
+                swAutoRestart.setChecked(AutoRestart.isEnabled(this));
+            }
         } finally {
             syncingRunSwitches = false;
         }
         refreshRunSummary();
+        refreshAutoRestartState();
+    }
+
+    /** 刷新「定时重启」的到期提示与间隔按钮文案。 */
+    private void refreshAutoRestartState() {
+        if (tvAutoRestartState != null) {
+            tvAutoRestartState.setText(AutoRestart.summary(this));
+        }
+        if (btnAutoRestartInterval != null) {
+            int minutes = AutoRestart.getIntervalMinutes(this);
+            btnAutoRestartInterval.setText("间隔 " + formatInterval(minutes));
+        }
+    }
+
+    private static String formatInterval(int minutes) {
+        if (minutes % 60 == 0) {
+            return (minutes / 60) + " 小时";
+        }
+        return minutes + " 分钟";
+    }
+
+    private void showRestartIntervalPicker() {
+        final int[] options = AutoRestart.INTERVAL_OPTIONS;
+        String[] labels = new String[options.length];
+        int checked = 0;
+        int current = AutoRestart.getIntervalMinutes(this);
+        for (int i = 0; i < options.length; i++) {
+            labels[i] = formatInterval(options[i]);
+            if (options[i] == current) {
+                checked = i;
+            }
+        }
+        new MaterialAlertDialogBuilder(this)
+                .setTitle("重启间隔")
+                .setSingleChoiceItems(labels, checked, (dialog, which) -> {
+                    AutoRestart.setIntervalMinutes(this, options[which]);
+                    refreshAutoRestartState();
+                    dialog.dismiss();
+                })
+                .setNegativeButton("取消", null)
+                .show();
     }
 
     private void refreshRunSummary() {
@@ -477,7 +546,8 @@ public class SettingsActivity extends AppCompatActivity {
         String host = read.getString("host", "");
         String scheme = read.getString("scheme", "http");
         edtHost.setText(TextUtils.isEmpty(host) ? "" : scheme + "://" + host);
-        edtKey.setText(read.getString("key", ""));
+        // 密钥以密文存放，这里解密回填；存量明文会在读取时顺带迁移成密文
+        edtKey.setText(SecurePrefs.readKey(read));
         swVerifySsl.setChecked(read.getBoolean("verify_ssl", false));
     }
 
@@ -522,12 +592,12 @@ public class SettingsActivity extends AppCompatActivity {
     }
 
     private void persistConfig(String scheme, String host, String key, boolean verifySsl) {
-        getSharedPreferences(PREFS, MODE_PRIVATE).edit()
-                .putString("host", host)
-                .putString("key", key)
-                .putString("scheme", scheme)
-                .putBoolean("verify_ssl", verifySsl)
-                .apply();
+        SharedPreferences.Editor editor = getSharedPreferences(PREFS, MODE_PRIVATE).edit();
+        editor.putString("host", host);
+        SecurePrefs.putKey(editor, key);
+        editor.putString("scheme", scheme);
+        editor.putBoolean("verify_ssl", verifySsl);
+        editor.apply();
         // 配置变更后心跳线程下一轮自动生效（线程每轮重新读取 SharedPreferences）
     }
 
