@@ -44,7 +44,16 @@ public class ForegroundServer extends Service {
     private final Handler handler = new Handler(Looper.getMainLooper());
 
     private final long MIN_SHOW_TIME = 2000;
+    /**
+     * 最后一次性尝试结束之后，前台通知最多再挂多久（<b>空闲超时</b>，不是总时长）。
+     *
+     * <p>见 {@link #armStopTimer()}：每次发起重试都会重新计时。</p>
+     */
     private final long MAX_SHOW_TIME = 20000;
+    /** 单次前台重试的绝对寿命上限，防止服务被无限续命长期挂着常驻通知 */
+    private static final long MAX_FOREGROUND_LIFETIME_MS = 10 * 60_000L;
+    /** 本轮的绝对退出时刻（elapsedRealtime） */
+    private long foregroundDeadline;
     /** 前台推送连续失败的最大退避间隔：5 分钟 */
     private static final long MAX_PUSH_BACKOFF_MS = 300_000L;
     /** 当前推送任务的连续失败次数（成功清零） */
@@ -75,13 +84,34 @@ public class ForegroundServer extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        handler.removeCallbacks(stopServerRunnable);
-        handler.postDelayed(stopServerRunnable, MAX_SHOW_TIME);
+        foregroundDeadline = SystemClock.elapsedRealtime() + MAX_FOREGROUND_LIFETIME_MS;
+        armStopTimer();
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             updateNotify(intent);
         }
         startForegroundActivity(intent);
         return super.onStartCommand(intent, flags, startId);
+    }
+
+    /**
+     * 重新给「自动退出前台」计时。
+     *
+     * <p><b>语义必须是空闲超时，不能是总时长。</b>原实现只在 {@code onStartCommand} 里
+     * {@code postDelayed(MAX_SHOW_TIME)} 一次，20 秒后无论如何都 {@code stopService}；
+     * 而推送重试的退避上限是 5 分钟（{@code MAX_PUSH_BACKOFF_MS}），按 2s→4s→8s→16s 退避，
+     * 第 4 次重试就要等到第 30 秒 —— <b>永远等不到，服务已经被停了</b>。
+     * 表现就是「断网时剩下的几次重试静默消失」，钱那笔单就丢了。</p>
+     *
+     * <p>现在每次真正发起一次重试都重新计时，只有「最后一次尝试结束后 20 秒」才退出；
+     * 同时用 {@link #MAX_FOREGROUND_LIFETIME_MS} 兜住绝对寿命，避免被无限续命。</p>
+     */
+    private void armStopTimer() {
+        handler.removeCallbacks(stopServerRunnable);
+        long remain = foregroundDeadline > 0
+                ? foregroundDeadline - SystemClock.elapsedRealtime()
+                : MAX_SHOW_TIME;
+        long delay = Math.min(MAX_SHOW_TIME, Math.max(1000L, remain));
+        handler.postDelayed(stopServerRunnable, delay);
     }
 
     @Override
@@ -141,6 +171,8 @@ public class ForegroundServer extends Service {
         handler.postDelayed(new Runnable() {
             @Override
             public void run() {
+                // 每发起一次重试就续一次空闲超时，否则 20 秒后服务被停、后面的重试全部落空
+                armStopTimer();
                 Request request = new Request.Builder().url(url).method("GET", null).build();
                 Call call = Utils.getOkHttpClient(ForegroundServer.this).newCall(request);
                 call.enqueue(new Callback() {

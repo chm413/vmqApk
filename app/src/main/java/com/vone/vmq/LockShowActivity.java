@@ -14,6 +14,8 @@ import com.vone.qrcode.R;
 
 public class LockShowActivity extends Activity {
     private TextView showTv;
+    /** 广播是否已成功注册：避免注册失败后 onDestroy 反注册再抛一次 */
+    private boolean receiverRegistered;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -27,13 +29,40 @@ public class LockShowActivity extends Activity {
         InitData();
     }
 
+    /**
+     * 注册「结束锁屏页」广播。
+     *
+     * <p><b>Android 14（API 34）起必须显式指定导出标志</b>：targetSdk >= 34 时，
+     * 用 {@code registerReceiver} 注册<b>非系统广播</b>而不带
+     * {@code RECEIVER_EXPORTED / RECEIVER_NOT_EXPORTED}，会直接抛
+     * {@code SecurityException} 让进程崩溃。</p>
+     *
+     * <p>{@code Constant.FINISH_LOCK_SHOW_ACTIVITY} 是本应用自定义的 action，
+     * 不属于系统广播豁免范围 —— 所以这台设备上一旦收款推送失败、这个锁屏页被拉起，
+     * 就会闪退。{@code SettingsActivity} / {@code ForegroundServer} 早就按新规注册了，
+     * 唯独这里漏了。</p>
+     */
     private void registerBroadCast() {
         IntentFilter filter = new IntentFilter(Constant.FINISH_LOCK_SHOW_ACTIVITY);
-        registerReceiver(finishActivityBroadcast, filter);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            // 只有本应用自己会发这个广播，用 NOT_EXPORTED 最小化暴露面
+            registerReceiver(finishActivityBroadcast, filter, Context.RECEIVER_NOT_EXPORTED);
+        } else {
+            registerReceiver(finishActivityBroadcast, filter);
+        }
+        receiverRegistered = true;
     }
 
     private void unregisterBroadCast() {
-        unregisterReceiver(finishActivityBroadcast);
+        if (!receiverRegistered) {
+            return;
+        }
+        receiverRegistered = false;
+        try {
+            unregisterReceiver(finishActivityBroadcast);
+        } catch (IllegalArgumentException ignored) {
+            // 极端情况下注册尚未生效就被反注册，忽略
+        }
     }
 
     private void InitView() {

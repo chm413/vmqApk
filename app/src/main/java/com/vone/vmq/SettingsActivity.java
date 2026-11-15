@@ -43,6 +43,7 @@ import com.vone.vmq.util.Constant;
 import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 
 import okhttp3.Call;
 import okhttp3.Callback;
@@ -495,14 +496,24 @@ public class SettingsActivity extends AppCompatActivity {
 
         String scheme = "http";
         String host = inputHost;
-        if (inputHost.startsWith("https://")) {
+        // 大小写不敏感地剥离协议前缀：此前只认小写 "https://"，用户从浏览器复制来的
+        // "HTTPS://xxx" 会整串留在 host 里，拼出来的 URL 变成 "http://HTTPS://xxx/api/..."
+        String lower = host.toLowerCase(Locale.ROOT);
+        if (lower.startsWith("https://")) {
             scheme = "https";
-            host = inputHost.substring(8);
-        } else if (inputHost.startsWith("http://")) {
-            host = inputHost.substring(7);
+            host = host.substring(8);
+        } else if (lower.startsWith("http://")) {
+            host = host.substring(7);
         }
-        if (host.endsWith("/")) {
+        host = host.trim();
+        while (host.endsWith("/")) {
             host = host.substring(0, host.length() - 1);
+        }
+        // 剥离后可能为空（用户只填了 "https://"），此时保存下去会拼出 "https:///api/..."，
+        // 心跳和推送全部失败却看不出原因，所以在保存前就拦住
+        if (TextUtils.isEmpty(host)) {
+            Toast.makeText(this, "地址不完整，请填写域名或 IP", Toast.LENGTH_SHORT).show();
+            return;
         }
 
         persistConfig(scheme, host, inputKey, swVerifySsl.isChecked());

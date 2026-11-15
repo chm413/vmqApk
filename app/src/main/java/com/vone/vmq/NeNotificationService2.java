@@ -670,20 +670,35 @@ public class NeNotificationService2 extends NotificationListenerService {
     }
 
     /**
-     * 如果出现无法通知的情况，进入前台，然后主动打开通知
+     * 如果出现无法通知的情况，进入前台，然后主动打开通知。
+     *
+     * <p><b>必须包住异常</b>：Android 12 起「后台启动前台服务」被系统限制，应用在后台
+     * （没有可见界面、也不在电池优化白名单里）调用 {@code startForegroundService} 会抛
+     * {@code ForegroundServiceStartNotAllowedException}（{@code IllegalStateException} 子类）。</p>
+     *
+     * <p>而这个方法的两个调用点恰好都在"后台出错"的时刻：心跳失败、收款推送失败。
+     * 也就是说<b>越是需要它兜底的场景，越容易被系统拒绝</b>。不catch 的话，
+     * 一次网络抖动就会把整个进程带走 —— 本来只是丢一次重试，变成丢掉整个监听服务。</p>
      */
     public static void enterForeground(Context context, String title, String text, String extra) {
         if (context == null) return;
-        AppLog.i(TAG, "enter fore ground");
         Intent intent = new Intent(context, ForegroundServer.class);
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         intent.putExtra(ForegroundServer.GET_NOTIFY_TITLE, title == null ? "" : title);
         intent.putExtra(ForegroundServer.GET_NOTIFY_TEXT, text == null ? "" : text);
         intent.putExtra(ForegroundServer.GET_NOTIFY_EXTRA, extra == null ? "" : extra);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            context.startForegroundService(intent);
-        } else {
-            context.startService(intent);
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.startForegroundService(intent);
+            } else {
+                context.startService(intent);
+            }
+            AppLog.i(TAG, "已启动前台重试服务");
+        } catch (IllegalStateException e) {
+            // 后台启动前台服务被拒：应用在后台且不在电池优化白名单
+            AppLog.w(TAG, "启动前台重试服务被系统拒绝（Android 12+ 后台启动限制）: " + e.getMessage()
+                    + "；请把 App 加入电池优化白名单");
+        } catch (Throwable t) {
+            AppLog.w(TAG, "启动前台重试服务失败: " + t.getClass().getSimpleName());
         }
     }
 

@@ -384,7 +384,8 @@ public final class AliveMonitor {
     }
 
     /** 读取上次记录的状态，从未检测过返回 null。 */
-    public static State readState(Context context, String slot) {        String raw = prefs(context).getString("alive_" + slot + "_state", null);
+    public static State readState(Context context, String slot) {
+        String raw = prefs(context).getString("alive_" + slot + "_state", null);
         if (raw == null) {
             return null;
         }
