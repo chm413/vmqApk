@@ -45,6 +45,21 @@ public final class AliveMonitor {
     public static final String PREF_INTERVAL_MIN = "alive_interval_min";
     public static final int DEFAULT_INTERVAL_MIN = 5;
 
+    /**
+     * 自定义拉起命令模板（{@code alive_revive_cmd}）。
+     *
+     * <p>默认空 = 内置脚本（解析 LAUNCHER 后 {@code am start}）。
+     * 高级用户可填自己验证过的静默命令，例如
+     * {@code am startservice -n com.tencent.mm/.xxx.Service}；
+     * 模板中的 {@code {pkg}} 会被替换为实际包名。</p>
+     */
+    public static final String PREF_REVIVE_CMD = "alive_revive_cmd";
+
+    /** 默认拉起命令：解析 LAUNCHER 再精确启动（不写死 Activity 名，微信/支付宝大版本变动也不失效） */
+    private static final String DEFAULT_REVIVE_CMD =
+            "act=$(cmd package resolve-activity --brief {pkg} | tail -n1); "
+                    + "am start -n \"$act\"";
+
     private static final int USAGE_WINDOW_MIN = 10;
 
     private static final String TAG = "Alive";
@@ -123,6 +138,34 @@ public final class AliveMonitor {
 
     public static void setIntervalMinutes(Context context, int minutes) {
         prefs(context).edit().putInt(PREF_INTERVAL_MIN, Math.max(1, minutes)).apply();
+    }
+
+    /** 读取自定义拉起命令；未配置返回空串（走内置默认脚本）。 */
+    public static String getReviveCommand(Context context) {
+        if (context == null) {
+            return "";
+        }
+        return prefs(context).getString(PREF_REVIVE_CMD, "").trim();
+    }
+
+    /** 保存自定义拉起命令；传空串恢复默认。 */
+    public static void setReviveCommand(Context context, String cmd) {
+        if (context == null) {
+            return;
+        }
+        prefs(context).edit().putString(PREF_REVIVE_CMD, cmd == null ? "" : cmd.trim()).apply();
+    }
+
+    /** 屏幕是否处于点亮状态（含锁屏亮屏）。 {@code true} 表示用户大概率在看手机。 */
+    private static boolean isScreenOn(Context context) {
+        try {
+            android.os.PowerManager pm =
+                    (android.os.PowerManager) context.getSystemService(Context.POWER_SERVICE);
+            return pm != null && pm.isInteractive();
+        } catch (Throwable t) {
+            // 读不到屏幕状态时按"亮屏"处理：宁可少拉一次，也不在用户面前弹界面
+            return true;
+        }
     }
 
     private static SharedPreferences prefs(Context context) {
@@ -324,13 +367,23 @@ public final class AliveMonitor {
             // 没有提权通道时静默跳过：这在纯 UsageStats 模式下是常态，不该刷屏
             return false;
         }
+
+        // 静默约束：亮屏（含锁屏亮着）说明用户大概率正在看手机，
+        // 此时 am start 会把微信/支付宝界面直接弹到用户面前，非常扰民 —— 跳过本轮。
+        // 挂机场景绝大多数时间息屏；息屏时 am start 不会点亮屏幕，
+        // Activity 停在后台，进程照样由 zygote 创建出来，即"静默启动"。
+        if (isScreenOn(context)) {
+            AppLog.d(TAG, displayName(status.pkg) + " 未运行，但屏幕点亮中，跳过自动拉起（避免弹界面打扰）");
+            return false;
+        }
+
         String slot = slotOf(status.pkg);
         String name = displayName(status.pkg);
         if (!acquireReviveQuota(context, slot, name)) {
             return false;
         }
-        String command = launchCommand(status.pkg);
-        AppLog.event("KeepAlive", "自动拉起 " + name, command);
+        String command = reviveCommand(context, status.pkg);
+        AppLog.event("KeepAlive", "自动拉起 " + name + "（息屏静默）", command);
         String result = PrivilegeShell.exec(context, command);
         boolean ok = result.contains("exit=0");
         AppLog.event("KeepAlive", (ok ? "拉起成功 " : "拉起失败 ") + name, firstLine(result));
@@ -338,14 +391,23 @@ public final class AliveMonitor {
     }
 
     /**
-     * 拉起指定包的主界面。
+     * 取本次拉起要执行的命令。
      *
-     * <p>不写死 Activity 名（微信/支付宝每次大版本都可能改），
-     * 而是让系统解析 LAUNCHER，再用 {@code am start -n} 精确启动。</p>
+     * <p>优先用用户在设置页配置的自定义模板（如 {@code am startservice -n …} 静默拉后台服务），
+     * 模板中的 {@code {pkg}} 替换为实际包名；未配置则回落到内置默认脚本。</p>
+     *
+     * <p><b>关于 service 路线的诚实说明</b>：{@code am startservice} 能做到完全无界面，
+     * 但微信/支付宝的服务组件名不公开且随版本变化，只有跑在<b>主进程</b>的 service
+     * 才能把 {@code pidof 主包名} 检测的进程拉起来（:push 等私有子进程服务无效），
+     * 且启动内部服务有触发账号风控的风险 —— 因此这里不硬编码任何猜测的组件名，
+     * 只提供配置入口，由用户填自己实测验证过的命令。</p>
      */
-    private static String launchCommand(String pkg) {
-        return "act=$(cmd package resolve-activity --brief " + pkg + " | tail -n1); "
-                + "am start -n \"$act\"";
+    private static String reviveCommand(Context context, String pkg) {
+        String custom = getReviveCommand(context);
+        if (!custom.isEmpty()) {
+            return custom.replace("{pkg}", pkg);
+        }
+        return DEFAULT_REVIVE_CMD.replace("{pkg}", pkg);
     }
 
     private static boolean acquireReviveQuota(Context context, String slot, String name) {

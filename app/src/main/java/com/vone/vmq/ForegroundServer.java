@@ -140,7 +140,11 @@ public class ForegroundServer extends Service {
             if (url == null) {
                 return;
             }
-            if (jsonObject.optBoolean("show", true)) {
+            // 缺省改为静默（false）：本服务的职责是"保网络 + 受控重试"，
+            // 不是向用户展示。v3.3.8 前缺省 true 导致推送失败时强制亮屏弹锁屏页，
+            // 深夜挂机时尤其扰民。心跳链路早已传 false，这里把默认值对齐，
+            // 以后新增调用点即使漏传也不会突然亮屏。
+            if (jsonObject.optBoolean("show", false)) {
                 startLockActivity(this.getString(R.string.app_is_post));
             }
             tryPushByUrl(
@@ -227,8 +231,11 @@ public class ForegroundServer extends Service {
      */
     @TargetApi(Build.VERSION_CODES.O)
     private void setForegroundService() {
+        // IMPORTANCE_LOW：前台通知仍然可见（startForeground 的硬性要求，不能去掉），
+        // 但不响铃、不横幅 —— 推送重试期间保持"静默"。
+        // 注意：渠道 importance 创建后只能降不能升，从 DEFAULT 降到 LOW 会立即生效。
         Utils.createNotificationChannel(this, CHANNEL_ID, channel_name
-                , NotificationManager.IMPORTANCE_DEFAULT);
+                , NotificationManager.IMPORTANCE_LOW);
         Notification notification = getNotifycation(null);
 
         startForeground(FOREGROUND_ID, notification);

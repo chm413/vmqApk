@@ -87,6 +87,8 @@ public class SettingsActivity extends AppCompatActivity {
     private MaterialSwitch swAutoRestart;
     private TextView tvAutoRestartState;
     private MaterialButton btnAutoRestartInterval;
+    /** 自动拉起命令（静默化） */
+    private MaterialButton btnReviveCmd;
     private TextView tvRunSummary;
     private MaterialButton btnPrivMode;
     /** 同步开关状态时置真，避免 setChecked 被当成用户操作 */
@@ -295,7 +297,61 @@ public class SettingsActivity extends AppCompatActivity {
         });
         btnAutoRestartInterval.setOnClickListener(v -> showRestartIntervalPicker());
 
+        // 自动拉起命令（静默化）：仅息屏时执行 + 可自定义命令模板。
+        // 默认走内置脚本（解析 LAUNCHER 后 am start）；高级用户可填实测过的
+        // am startservice 等无界面命令，模板里 {pkg} 会被替换成实际包名。
+        btnReviveCmd = findViewById(R.id.btn_revive_cmd);
+        btnReviveCmd.setOnClickListener(v -> showReviveCmdEditor());
+        refreshReviveCmdButton();
+
         syncRunControls();
+    }
+
+    private void refreshReviveCmdButton() {
+        if (btnReviveCmd == null) {
+            return;
+        }
+        btnReviveCmd.setText(AliveMonitor.getReviveCommand(this).isEmpty()
+                ? "拉起命令：默认" : "拉起命令：自定义");
+    }
+
+    private void showReviveCmdEditor() {
+        TextInputLayout inputLayout = new TextInputLayout(this);
+        inputLayout.setBoxBackgroundMode(TextInputLayout.BOX_BACKGROUND_OUTLINE);
+        inputLayout.setHint("拉起命令模板");
+        inputLayout.setHelperText("留空=默认（解析 LAUNCHER 后 am start，仅息屏执行）。"
+                + "支持 {pkg} 占位符。如需完全无界面可填 am startservice -n 包名/组件名，"
+                + "但组件名随版本变化、且只有主进程服务才有效，请先实测验证");
+        inputLayout.setCounterEnabled(true);
+        inputLayout.setCounterMaxLength(500);
+
+        final TextInputEditText input = new TextInputEditText(this);
+        input.setSingleLine(false);
+        input.setMinLines(2);
+        input.setText(AliveMonitor.getReviveCommand(this));
+        inputLayout.addView(input);
+
+        new MaterialAlertDialogBuilder(this)
+                .setTitle("自定义拉起命令")
+                .setView(inputLayout)
+                .setNegativeButton("取消", null)
+                .setNeutralButton("恢复默认", (dialog, which) -> {
+                    AliveMonitor.setReviveCommand(this, "");
+                    AppLog.event("KeepAlive", "拉起命令", "恢复默认");
+                    refreshReviveCmdButton();
+                })
+                .setPositiveButton("保存", (dialog, which) -> {
+                    String cmd = input.getText() != null ? input.getText().toString().trim() : "";
+                    AliveMonitor.setReviveCommand(this, cmd);
+                    // 配置页日志按用户约定不脱敏
+                    AppLog.event("KeepAlive", "拉起命令",
+                            cmd.isEmpty() ? "恢复默认" : cmd);
+                    refreshReviveCmdButton();
+                    Toast.makeText(this,
+                            cmd.isEmpty() ? "已恢复默认拉起命令" : "拉起命令已保存",
+                            Toast.LENGTH_SHORT).show();
+                })
+                .show();
     }
 
     /**
@@ -321,6 +377,7 @@ public class SettingsActivity extends AppCompatActivity {
         }
         refreshRunSummary();
         refreshAutoRestartState();
+        refreshReviveCmdButton();
     }
 
     /** 刷新「定时重启」的到期提示与间隔按钮文案。 */

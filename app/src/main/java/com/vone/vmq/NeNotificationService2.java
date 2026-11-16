@@ -662,6 +662,10 @@ public class NeNotificationService2 extends NotificationListenerService {
             try {
                 extraJson.put("url", url);
                 extraJson.put("try_count", 5);
+                // 静默重试：不弹锁屏页、不点亮屏幕（与心跳重试行为对齐）。
+                // 重试逻辑全部在 ForegroundServer 服务内执行，Activity 只是显示用途，
+                // 缺了它不影响任何一次重试。
+                extraJson.put("show", false);
                 extraJson.put("retry_after_millis", retryAfterMillis);
             } catch (JSONException jsonException) {
                 AppLog.w(TAG, "编码推送前台重试参数失败", jsonException);
