@@ -1,13 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+    主页 = 仪表盘：只回答三个问题，不让用户读句子。
+
+      ① 现在能不能收钱？   → 采集状态 + 心跳结论（大字 + 语义色）
+      ② 关键链路通不通？   → 监听服务 / 证书校验 / 服务器地址（次级文字）
+      ③ 要动手做什么？     → 诊断（半宽次级按钮）+ 设置（主 CTA）
+
+    所有状态文本仍由 MainActivity.refreshStatus() 写入，本布局只负责层级与视觉权重。
+-->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
+    android:background="?attr/colorSurface"
     android:focusable="true"
     android:focusableInTouchMode="true"
-    android:background="?attr/colorSurface"
+    android:orientation="vertical"
     tools:context="com.vone.vmq.MainActivity">
 
     <include layout="@layout/toolbar_main" />
@@ -15,20 +24,24 @@
     <ScrollView
         android:layout_width="match_parent"
         android:layout_height="match_parent"
+        android:clipToPadding="false"
         android:fillViewport="true">
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:padding="16dp">
+            android:paddingLeft="16dp"
+            android:paddingRight="16dp"
+            android:paddingTop="16dp"
+            android:paddingBottom="24dp">
 
-            <!-- 运行状态卡：配置摘要 + 心跳状态 -->
+            <!-- ============ ① 主状态卡：一眼结论 ============ -->
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                app:cardCornerRadius="12dp"
-                app:cardElevation="2dp"
+                app:cardCornerRadius="16dp"
+                app:cardElevation="0dp"
                 app:strokeWidth="0dp"
                 style="@style/Widget.Material3.CardView.Filled">
 
@@ -36,75 +49,73 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
-                    android:padding="16dp">
+                    android:padding="18dp">
 
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="运行状态"
-                        android:textColor="?attr/colorOnSurface"
-                        android:textSize="18sp"
-                        android:textStyle="bold" />
-
+                    <!-- 采集状态 + 总闸 -->
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="10dp"
                         android:gravity="center_vertical"
                         android:orientation="horizontal">
 
-                        <TextView
-                            android:id="@+id/tv_run_state"
+                        <LinearLayout
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
-                            android:lineSpacingExtra="2dp"
-                            android:text="采集：运行中"
-                            android:textColor="?attr/colorPrimary"
-                            android:textSize="15sp"
-                            android:textStyle="bold" />
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:letterSpacing="0.06"
+                                android:text="采集状态"
+                                android:textColor="?attr/colorOnSurfaceVariant"
+                                android:textSize="12sp" />
+
+                            <TextView
+                                android:id="@+id/tv_run_state"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="2dp"
+                                android:text="运行中"
+                                android:textColor="?attr/colorPrimary"
+                                android:textSize="18sp"
+                                android:textStyle="bold" />
+                        </LinearLayout>
 
                         <com.google.android.material.materialswitch.MaterialSwitch
                             android:id="@+id/sw_master"
                             android:layout_width="wrap_content"
-                            android:layout_height="wrap_content" />
+                            android:layout_height="wrap_content"
+                            android:text="总闸"
+                            android:textColor="?attr/colorOnSurfaceVariant"
+                            android:textSize="12sp"
+                            app:switchPadding="8dp" />
                     </LinearLayout>
 
-                    <TextView
-                        android:id="@+id/tv_server"
+                    <com.google.android.material.divider.MaterialDivider
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="12dp"
-                        android:text="服务器：未配置"
-                        android:textColor="?attr/colorOnSurface"
-                        android:textSize="15sp" />
+                        android:layout_marginTop="14dp" />
 
+                    <!-- 心跳结论：本页视觉重心 -->
                     <TextView
-                        android:id="@+id/tv_verify"
-                        android:layout_width="match_parent"
+                        android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="6dp"
-                        android:text="证书校验：--"
+                        android:layout_marginTop="14dp"
+                        android:letterSpacing="0.06"
+                        android:text="心跳"
                         android:textColor="?attr/colorOnSurfaceVariant"
-                        android:textSize="14sp" />
-
-                    <TextView
-                        android:id="@+id/tv_listener"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="6dp"
-                        android:text="监听服务：检测中…"
-                        android:textColor="?attr/colorOnSurfaceVariant"
-                        android:textSize="14sp" />
+                        android:textSize="12sp" />
 
                     <TextView
                         android:id="@+id/tv_heart"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="6dp"
-                        android:text="心跳：等待中…"
+                        android:layout_marginTop="2dp"
+                        android:text="等待中…"
                         android:textColor="?attr/colorOnSurface"
-                        android:textSize="15sp"
+                        android:textSize="24sp"
                         android:textStyle="bold" />
 
                     <TextView
@@ -114,64 +125,181 @@
                         android:layout_marginTop="4dp"
                         android:text="最近成功：--　延迟：--ms"
                         android:textColor="?attr/colorOnSurfaceVariant"
-                        android:textSize="14sp" />
+                        android:textSize="13sp" />
 
                     <com.google.android.material.divider.MaterialDivider
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="12dp" />
+                        android:layout_marginTop="14dp" />
+
+                    <!-- 配置摘要：从"正文"降级为"附注" -->
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp"
+                        android:letterSpacing="0.06"
+                        android:text="服务器"
+                        android:textColor="?attr/colorOnSurfaceVariant"
+                        android:textSize="12sp" />
 
                     <TextView
-                        android:id="@+id/tv_alive"
+                        android:id="@+id/tv_server"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="10dp"
-                        android:lineSpacingExtra="2dp"
-                        android:text="微信：尚未检测\n支付宝：尚未检测"
-                        android:textColor="?attr/colorOnSurfaceVariant"
+                        android:layout_marginTop="2dp"
+                        android:text="未配置"
+                        android:textColor="?attr/colorOnSurface"
                         android:textSize="14sp" />
+
+                    <TextView
+                        android:id="@+id/tv_verify"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:text="证书校验：--"
+                        android:textColor="?attr/colorOnSurfaceVariant"
+                        android:textSize="13sp" />
+
+                    <TextView
+                        android:id="@+id/tv_listener"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:text="监听服务：检测中…"
+                        android:textColor="?attr/colorOnSurfaceVariant"
+                        android:textSize="13sp" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
-            <!-- 操作区 -->
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btn_start"
+            <!-- ============ ② 支付宝 / 微信 存活 ============ -->
+            <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
-                android:layout_height="48dp"
-                android:layout_marginTop="16dp"
-                android:onClick="doStart"
-                android:text="立即心跳检测"
-                android:textSize="15sp"
-                app:icon="@drawable/ic_favorite"
-                app:iconGravity="textStart"
-                app:iconPadding="8dp"
-                style="@style/Widget.Material3.Button.Icon" />
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                app:cardCornerRadius="16dp"
+                app:cardElevation="0dp"
+                app:strokeWidth="0dp"
+                style="@style/Widget.Material3.CardView.Filled">
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btn_checkpush"
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="18dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:letterSpacing="0.06"
+                        android:text="支付宝 / 微信 存活"
+                        android:textColor="?attr/colorOnSurfaceVariant"
+                        android:textSize="12sp" />
+
+                    <!-- 拆成两行独立着色：出问题时能一眼看出是哪一个 -->
+                    <TextView
+                        android:id="@+id/tv_alive_alipay"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        android:text="支付宝：尚未检测"
+                        android:textColor="?attr/colorOnSurface"
+                        android:textSize="15sp" />
+
+                    <TextView
+                        android:id="@+id/tv_alive_wechat"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:text="微信：尚未检测"
+                        android:textColor="?attr/colorOnSurface"
+                        android:textSize="15sp" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        android:text="检测间隔与开关在「设置 · 保活与自愈」"
+                        android:textColor="?attr/colorOnSurfaceVariant"
+                        android:textSize="12sp" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- ============ ③ 诊断：次级动作 ============ -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="20dp"
+                android:letterSpacing="0.06"
+                android:text="诊断"
+                android:textColor="?attr/colorOnSurfaceVariant"
+                android:textSize="12sp" />
+
+            <TextView
                 android:layout_width="match_parent"
-                android:layout_height="48dp"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:text="心跳验证与服务端连通性；监听权限决定能否读到收款通知"
+                android:textColor="?attr/colorOnSurfaceVariant"
+                android:textSize="12sp" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
-                android:onClick="checkPush"
-                android:text="检测监听权限"
-                android:textSize="15sp"
-                app:icon="@drawable/ic_notifications"
-                app:iconGravity="textStart"
-                app:iconPadding="8dp"
-                style="@style/Widget.Material3.Button.OutlinedButton" />
+                android:orientation="horizontal">
 
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_start"
+                    android:layout_width="0dp"
+                    android:layout_height="48dp"
+                    android:layout_weight="1"
+                    android:onClick="doStart"
+                    android:text="立即心跳"
+                    android:textSize="14sp"
+                    app:icon="@drawable/ic_favorite"
+                    app:iconGravity="textStart"
+                    app:iconPadding="6dp"
+                    app:iconSize="18dp"
+                    style="@style/Widget.Material3.Button.OutlinedButton" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_checkpush"
+                    android:layout_width="0dp"
+                    android:layout_height="48dp"
+                    android:layout_marginStart="8dp"
+                    android:layout_weight="1"
+                    android:onClick="checkPush"
+                    android:text="监听权限"
+                    android:textSize="14sp"
+                    app:icon="@drawable/ic_notifications"
+                    app:iconGravity="textStart"
+                    app:iconPadding="6dp"
+                    app:iconSize="18dp"
+                    style="@style/Widget.Material3.Button.OutlinedButton" />
+            </LinearLayout>
+
+            <!-- ============ ④ 主 CTA：唯一的高权重入口 ============ -->
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btn_settings"
                 android:layout_width="match_parent"
-                android:layout_height="48dp"
-                android:layout_marginTop="8dp"
+                android:layout_height="52dp"
+                android:layout_marginTop="10dp"
                 android:onClick="goSettings"
-                android:text="设置（服务器 / 保活 / 日志）"
+                android:text="打开设置"
                 android:textSize="15sp"
                 app:icon="@drawable/ic_edit"
                 app:iconGravity="textStart"
                 app:iconPadding="8dp"
-                style="@style/Widget.Material3.Button.OutlinedButton" />
+                style="@style/Widget.Material3.Button" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:gravity="center"
+                android:text="服务器 · 运行控制 · 保活与自愈 · 运行日志"
+                android:textColor="?attr/colorOnSurfaceVariant"
+                android:textSize="12sp" />
         </LinearLayout>
     </ScrollView>
 </LinearLayout>

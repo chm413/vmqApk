@@ -93,7 +93,9 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
     private TextView tvListener;
     private TextView tvHeart;
     private TextView tvHeartDetail;
-    private TextView tvAlive;
+    /** 存活状态拆成两行独立着色：出问题时能一眼看出是微信还是支付宝 */
+    private TextView tvAliveWechat;
+    private TextView tvAliveAlipay;
     private TextView tvRunState;
     private MaterialSwitch swMaster;
     /** 同步总开关时置真，避免 setChecked 被当成用户操作 */
@@ -146,7 +148,8 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
         tvListener = findViewById(R.id.tv_listener);
         tvHeart = findViewById(R.id.tv_heart);
         tvHeartDetail = findViewById(R.id.tv_heart_detail);
-        tvAlive = findViewById(R.id.tv_alive);
+        tvAliveAlipay = findViewById(R.id.tv_alive_alipay);
+        tvAliveWechat = findViewById(R.id.tv_alive_wechat);
         tvRunState = findViewById(R.id.tv_run_state);
         swMaster = findViewById(R.id.sw_master);
         swMaster.setOnCheckedChangeListener((v, checked) -> {
@@ -227,8 +230,8 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
         boolean verifySsl = read.getBoolean("verify_ssl", false);
 
         tvServer.setText(TextUtils.isEmpty(host)
-                ? "服务器：未配置（到设置页填写）"
-                : "服务器：" + scheme + "://" + host);
+                ? "未配置 —— 点下方「打开设置」填写"
+                : scheme + "://" + host);
         tvVerify.setText("证书校验：" + (verifySsl ? "开启（系统 CA 严格校验）" : "关闭（兼容自签证书）"));
 
         boolean listenerEnabled = isNotificationListenersEnabled();
@@ -248,14 +251,16 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
         long latency = read.getLong("last_heart_latency_ms", 0L);
         boolean online = okAt > 0 && System.currentTimeMillis() - okAt < 90_000L;
 
+        // 心跳：这里只写"结论"（布局里已有「心跳」小标题），字号由布局放大到 24sp，
+        // 圆点 + 语义色让状态在扫一眼时就能分辨。
         if (online) {
-            tvHeart.setText("心跳：在线");
+            tvHeart.setText("● 在线");
             tvHeart.setTextColor(MaterialColors.getColor(tvHeart, colorPrimary));
         } else if (failCount > 0 && failAt >= okAt) {
-            tvHeart.setText("心跳：离线（连续失败 " + failCount + " 次，指数退避重试中）");
+            tvHeart.setText("● 离线 · 连续失败 " + failCount + " 次");
             tvHeart.setTextColor(MaterialColors.getColor(tvHeart, colorError));
         } else {
-            tvHeart.setText("心跳：等待首次上报");
+            tvHeart.setText("● 等待首次上报");
             tvHeart.setTextColor(MaterialColors.getColor(tvHeart, colorOnSurfaceVariant));
         }
 
@@ -264,11 +269,9 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
                 : "--";
         tvHeartDetail.setText("最近成功：" + okText + "　延迟：" + (latency > 0 ? latency + "ms" : "--"));
 
-        if (tvAlive != null) {
-            String wechat = AliveMonitor.summaryOf(this, AliveMonitor.SLOT_WECHAT, "微信");
-            String alipay = AliveMonitor.summaryOf(this, AliveMonitor.SLOT_ALIPAY, "支付宝");
-            tvAlive.setText(wechat + "\n" + alipay);
-        }
+        // 存活状态：两行独立着色（原实现拼成一个多行 TextView，无法区分是谁异常）
+        bindAliveRow(tvAliveAlipay, AliveMonitor.SLOT_ALIPAY, "支付宝");
+        bindAliveRow(tvAliveWechat, AliveMonitor.SLOT_WECHAT, "微信");
 
         // 运行总开关：以 prefs 为准同步，避免用户从设置页改完回到主页显示不一致
         boolean active = RunSwitch.isAnyActive(this);
@@ -281,10 +284,37 @@ public class MainActivity extends AppCompatActivity implements ThemeChangeListen
             }
         }
         if (tvRunState != null) {
-            tvRunState.setText("采集：" + RunSwitch.summary(this));
+            tvRunState.setText("● " + RunSwitch.summary(this));
             tvRunState.setTextColor(MaterialColors.getColor(tvRunState,
                     active ? colorPrimary : colorError));
         }
+    }
+
+    /**
+     * 把一行「微信 / 支付宝」存活状态写进指定 TextView 并按状态着色。
+     *
+     * <p>颜色语义与心跳保持一致：运行中 = 主色、未运行 = 错误色、其余（最近活跃 /
+     * 无前台活动 / 无法检测）= 次级文字色。检测手段（pidof / usage / none）已经写在
+     * {@link AliveMonitor#summaryOf} 的细节里，界面上不再叠加图标，避免视觉噪音。</p>
+     *
+     * <p>从未检测过（state 为 null）时不画状态圆点 —— 那不是"异常"，只是还没有数据。</p>
+     */
+    private void bindAliveRow(TextView target, String slot, String name) {
+        if (target == null) {
+            return;
+        }
+        AliveMonitor.State state = AliveMonitor.readState(this, slot);
+        String dot = state == null ? "" : "● ";
+        target.setText(dot + AliveMonitor.summaryOf(this, slot, name));
+        int colorAttr;
+        if (state == AliveMonitor.State.RUNNING) {
+            colorAttr = colorPrimary;
+        } else if (state == AliveMonitor.State.NOT_RUNNING) {
+            colorAttr = colorError;
+        } else {
+            colorAttr = colorOnSurfaceVariant;
+        }
+        target.setTextColor(MaterialColors.getColor(target, colorAttr));
     }
 
     /** 进入设置页（服务器 / 保活 / 日志） */

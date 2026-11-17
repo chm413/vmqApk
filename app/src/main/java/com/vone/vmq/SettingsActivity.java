@@ -140,14 +140,7 @@ public class SettingsActivity extends AppCompatActivity {
         findViewById(R.id.btn_battery).setOnClickListener(v -> requestIgnoreBatteryOptimization());
         findViewById(R.id.btn_app_detail).setOnClickListener(v -> openAppDetail());
         findViewById(R.id.btn_keepalive_guide).setOnClickListener(v -> showKeepAliveGuide());
-        findViewById(R.id.btn_clear_logs).setOnClickListener(v -> {
-            AppLog.clear();
-            if (logText != null) {
-                logText.setText("");
-            }
-            // 日志管理动作本身也要留痕，否则"谁清空的"永远查不到
-            AppLog.event("Settings", "清空日志", "用户手动清除全部内存与磁盘日志");
-        });
+        findViewById(R.id.btn_clear_logs).setOnClickListener(v -> confirmClearLogs());
         findViewById(R.id.btn_export_logs).setOnClickListener(v -> exportLogs());
         btnLogLevel = findViewById(R.id.btn_log_level);
         btnLogLevel.setOnClickListener(v -> showLevelPicker());
@@ -425,7 +418,8 @@ public class SettingsActivity extends AppCompatActivity {
             return;
         }
         String summary = RunSwitch.summary(this);
-        tvRunSummary.setText("当前：" + summary);
+        // 布局里已有「当前」小标题，这里只写结论，避免重复成"当前：当前：运行中"
+        tvRunSummary.setText(summary);
         boolean active = RunSwitch.isAnyActive(this);
         tvRunSummary.setTextColor(MaterialColors.getColor(tvRunSummary,
                 active ? colorPrimary : colorOnSurfaceVariant));
@@ -853,6 +847,30 @@ public class SettingsActivity extends AppCompatActivity {
                 logScroll.post(() -> logScroll.fullScroll(View.FOCUS_DOWN));
             }
         });
+    }
+
+    /**
+     * 清除日志前必须确认。
+     *
+     * <p>这是不可逆操作（内存 + 磁盘全清），而按钮就紧挨着「导出」——
+     * 原实现点一下直接清空，误触没有任何补救机会。日志是排查丢单的唯一现场线索，
+     * 误清等于把证据删了。改成二次确认，文案里主动引导先导出。</p>
+     */
+    private void confirmClearLogs() {
+        new MaterialAlertDialogBuilder(this)
+                .setTitle("清除全部日志？")
+                .setMessage("内存与磁盘日志都会被清空，且无法恢复。"
+                        + "如果正在排查丢单，建议先点「导出」留一份。")
+                .setNegativeButton("取消", null)
+                .setPositiveButton("清除", (dialog, which) -> {
+                    AppLog.clear();
+                    if (logText != null) {
+                        logText.setText("");
+                    }
+                    // 日志管理动作本身也要留痕，否则"谁清空的"永远查不到
+                    AppLog.event("Settings", "清空日志", "用户确认后清除全部内存与磁盘日志");
+                })
+                .show();
     }
 
     /**
